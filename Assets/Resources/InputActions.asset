@@ -14,4 +14,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: Oculus.VR::Meta.XR.InputActions.RuntimeSettings
   InputActionDefinitions: []
   InputActionSets:
-  - {fileID: 0}
+  - {fileID: 11400000, guid: b15b1eaac3fcd2248b9b53acc88908f6, type: 2}
