@@ -1,26 +1,26 @@
-# MR Blueprint — Project Contract
+# MR Blueprint — AI Build Contract
 
-## 1. Project Overview
+## 1. Project Summary
 
-MR Blueprint is a Unity-based mixed reality application for Meta Quest 3 that allows users to author physics behaviors in real space using the Logitech MX Ink stylus.
+MR Blueprint is a Unity (C#) mixed reality application for Meta Quest 3 using passthrough and Logitech MX Ink stylus input.
 
-Core interaction:
-- Place rigidbody objects in the real environment
-- Draw gestures in 3D space
-- Convert gestures into physics behaviors (spring, impulse)
+Users:
+- place rigidbody objects in their real environment
+- draw gestures in 3D space
+- create physics behaviors (spring, impulse)
 
 ---
 
-## 2. Core Pipeline
+## 2. Core System Pipeline (MANDATORY)
 
-All features must follow this pipeline:
+All features MUST follow this pipeline:
 
 InputManager  
 → StrokeRecorder  
 → GestureInterpreter  
 → InteractionResolver  
 → PhysicsAuthoringSystem  
-→ SceneStateManager + Visualization
+→ SceneStateManager
 
 No system may bypass this pipeline.
 
@@ -28,90 +28,42 @@ No system may bypass this pipeline.
 
 ## 3. Canonical Systems (DO NOT DUPLICATE)
 
-These are the only top-level systems allowed.
+These are the ONLY allowed top-level systems.
 
 ### InputManager
-Responsibilities:
-- Read stylus pose, pressure, and contact state
-- Provide normalized input to other systems
-
-Rules:
-- Only source of stylus input
-- No physics or scene logic
-
----
+- Provides stylus position, rotation, pressure, draw state
+- ONLY source of input data
 
 ### StrokeRecorder
-Responsibilities:
-- Convert raw input into StrokeData
-- Handle sampling, smoothing, and storage
-
-Rules:
-- Does not interpret gestures
-- Does not interact with scene objects
-
----
+- Converts input into StrokeData
+- Handles sampling, smoothing
 
 ### GestureInterpreter
-Responsibilities:
-- Convert StrokeData → GestureResult
-
-Rules:
-- Pure interpretation layer
-- Must not modify scene or physics
-- Must not query Unity scene directly
-
----
+- Converts StrokeData → GestureResult
+- PURE LOGIC (no Unity scene access, no physics)
 
 ### InteractionResolver
-Responsibilities:
-- Map GestureResult → TargetResolutionResult
-- Identify relevant objects in the scene
-
-Rules:
-- Only resolves targets
-- Does not apply physics
-
----
+- Converts GestureResult → TargetResolutionResult
+- Finds relevant rigidbodies
 
 ### PhysicsAuthoringSystem
-Responsibilities:
-- Create physics behaviors:
+- Creates physics behaviors:
   - springs
   - impulses
-  - (optional) walls / hinges
-
-Rules:
-- Only system allowed to modify physics relationships
-- Must not read raw input directly
-- Must use GestureResult + TargetResolutionResult
-
----
+- ONLY system allowed to modify physics
 
 ### ObjectPlacementManager
-Responsibilities:
-- Spawn and manage rigidbody objects
-- Maintain registry of active objects
-
-Rules:
-- All interactable objects must be registered here
-
----
+- Spawns and tracks rigidbody objects
 
 ### SceneStateManager
-Responsibilities:
-- Track all runtime-created objects and behaviors
-- Handle reset / cleanup
-
-Rules:
-- Every runtime-created object must be registered
-- Reset must return scene to initial state
+- Tracks all runtime-created objects
+- Handles reset / cleanup
 
 ---
 
-## 4. Shared Data Models (LOCKED)
+## 4. Shared Data Models (LOCKED — DO NOT MODIFY)
 
-These models must be reused exactly. Do not redefine them.
+All systems MUST use these exact definitions.
 
 ```csharp
 public enum GestureType
@@ -150,3 +102,164 @@ public class TargetResolutionResult
     public Rigidbody SecondaryObject;
     public Vector3 HitPoint;
 }
+5. Required API Contracts (DO NOT RENAME)
+InputManager
+Vector3 GetStylusPosition()
+Quaternion GetStylusRotation()
+float GetPressure()
+bool IsDrawing()
+StrokeRecorder
+void BeginStroke()
+void UpdateStroke()
+StrokeData EndStroke()
+GestureInterpreter
+GestureResult Classify(StrokeData stroke)
+InteractionResolver
+TargetResolutionResult Resolve(GestureResult gesture)
+PhysicsAuthoringSystem
+void CreateSpring(TargetResolutionResult targets, GestureResult gesture)
+void ApplyImpulse(TargetResolutionResult targets, GestureResult gesture)
+ObjectPlacementManager
+Rigidbody SpawnObject(Vector3 position)
+List<Rigidbody> GetAllObjects()
+SceneStateManager
+void RegisterObject(GameObject obj)
+void ResetScene()
+6. System Invariants (STRICT)
+
+The following MUST always be true:
+
+InputManager is the ONLY source of input
+GestureInterpreter MUST NOT:
+access Unity scene
+access rigidbodies
+modify objects
+PhysicsAuthoringSystem is the ONLY system that:
+creates constraints
+applies forces
+All runtime-created objects MUST:
+be registered with SceneStateManager
+be removable on reset
+Systems MUST communicate ONLY through shared data models
+NO duplicate managers or alternate pipelines
+NO direct coupling between non-adjacent systems
+7. Allowed Data Flow
+
+Valid:
+Input → Stroke → Gesture → Target → Physics
+
+Invalid:
+
+Input → Physics ❌
+Gesture → Rigidbody ❌
+Stroke → ObjectPlacement ❌
+8. Feature Requirements (MVP)
+
+The system MUST support:
+
+Required
+Object placement (rigidbodies)
+Stroke drawing in 3D
+Gesture: Line → Spring
+Gesture: Flick → Impulse
+Visual feedback (lines/arrows)
+Reset system
+Optional
+Boundary walls
+Hinge constraints
+9. Parameter Mapping Rules
+
+Use these mappings:
+
+pressure → spring stiffness
+stroke length → rest length
+stroke direction → impulse direction
+stroke velocity → impulse magnitude
+
+All values MUST:
+
+be normalized
+be clamped to safe ranges
+10. Reset / Cleanup Contract (MANDATORY)
+
+All runtime-created elements MUST be tracked and removable:
+
+Includes:
+
+springs / constraints
+line renderers
+temporary visuals
+colliders
+
+SceneStateManager must fully restore initial state.
+
+11. Code Generation Rules (FOR AI)
+
+When generating code:
+
+MUST
+Use existing systems and APIs
+Reuse shared data models exactly
+Integrate into the pipeline (no shortcuts)
+Support reset/cleanup
+Keep public APIs minimal
+Use Unity-compatible C#
+MUST NOT
+Create new managers unless explicitly requested
+Duplicate functionality of existing systems
+Access Unity scene from GestureInterpreter
+Modify physics outside PhysicsAuthoringSystem
+12. Required Output Format (FOR AI TASKS)
+
+Every generated feature MUST include:
+
+Assumptions
+Dependencies on existing systems
+New public methods (if any)
+Integration location (which GameObject / system)
+Step-by-step integration instructions
+Code
+Inspector setup instructions
+Manual test plan (Quest device)
+13. Definition of Done
+
+A feature is complete when:
+
+It follows the pipeline
+It uses shared data models
+It integrates with existing systems
+It supports reset/cleanup
+It works on-device (Quest 3)
+It produces clear visual feedback
+14. Example Flow — Spring
+InputManager → stylus drawing
+StrokeRecorder → StrokeData
+GestureInterpreter → GestureType.Line
+InteractionResolver → 2 rigidbodies
+PhysicsAuthoringSystem → CreateSpring(...)
+SceneStateManager → register created objects
+15. Example Flow — Impulse
+StrokeRecorder → fast stroke
+GestureInterpreter → GestureType.Flick
+InteractionResolver → nearest rigidbody
+PhysicsAuthoringSystem → ApplyImpulse(...)
+
+---
+
+# How to use this (important)
+
+For every AI prompt:
+
+- paste **Sections 2, 3, 4, 5, 6**
+- then add your task
+
+---
+
+# Why this works
+
+This document:
+- eliminates architectural drift
+- prevents duplicate systems
+- locks interfaces
+- enforces clean pipelines
+- ensures all generated code integrates correctly
