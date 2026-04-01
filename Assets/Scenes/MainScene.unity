@@ -713,6 +713,101 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &640495184
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 640495189}
+  - component: {fileID: 640495188}
+  - component: {fileID: 640495187}
+  - component: {fileID: 640495186}
+  - component: {fileID: 640495185}
+  m_Layer: 0
+  m_Name: PhysicsDrawings
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &640495185
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 640495184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6ba90afa731bb344cbf31e49d3363655, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PhysicsGestureReadout
+  _inputManager: {fileID: 640495188}
+  _strokeRecorder: {fileID: 640495187}
+  _gestureInterpreter: {fileID: 640495186}
+  _showOnScreenReadout: 1
+--- !u!114 &640495186
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 640495184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4eab1c53559cd724d811b615936f27bb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GestureInterpreter
+  _minimumStrokeDistance: 0.03
+  _flickSpeedThreshold: 1.2
+  _straightnessThreshold: 1.2
+  _closedLoopThreshold: 0.04
+  _circleRoundnessThreshold: 0.35
+--- !u!114 &640495187
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 640495184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5c9d0124563f87247852958dec04b21f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StrokeRecorder
+  _inputManager: {fileID: 640495188}
+  _minimumPointDistance: 0.0005
+--- !u!114 &640495188
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 640495184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 76d5268cd4a65bc41b5298e12314ead9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::InputManager
+  _stylusHandler: {fileID: 2041492266}
+--- !u!4 &640495189
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 640495184}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.04493, y: 0, z: -0.14072}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &700543017
 GameObject:
   m_ObjectHideFlags: 0
@@ -1550,3 +1645,4 @@ SceneRoots:
   - {fileID: 259765908}
   - {fileID: 1828903158}
   - {fileID: 614279982}
+  - {fileID: 640495189}
