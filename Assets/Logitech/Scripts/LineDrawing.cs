@@ -5,9 +5,14 @@ using UnityEngine.Rendering;
 
 public class LineDrawing : MonoBehaviour
 {
+    private const float SnappedLineWidthMultiplier = 1.12f;
+    private const float ArrowConeLength = 0.03f;
+    private const float ArrowConeRadius = 0.009f;
+
     private List<GameObject> _lines = new List<GameObject>();
     private LineRenderer _currentLine;
     private List<float> _currentLineWidths = new List<float>(); //list to store line widths
+    private readonly List<StrokePoint> _currentStrokePoints = new List<StrokePoint>();
 
     [SerializeField] float _maxLineWidth = 0.01f;
     [SerializeField] float _minLineWidth = 0.0005f;
@@ -55,8 +60,18 @@ public class LineDrawing : MonoBehaviour
 
     [SerializeField]
     private StylusHandler _stylusHandler;
+    [SerializeField] private GestureInterpreter _gestureInterpreter;
     private Vector3 _previousLinePoint;
     private const float _minDistanceBetweenLinePoints = 0.0005f;
+    private float _strokeStartTime;
+
+    private void Awake()
+    {
+        if (_gestureInterpreter == null)
+        {
+            _gestureInterpreter = FindFirstObjectByType<GestureInterpreter>();
+        }
+    }
 
     private void StartNewLine()
     {
@@ -77,6 +92,8 @@ public class LineDrawing : MonoBehaviour
         _currentLine.receiveShadows = false;
         _lines.Add(gameObject);
         _previousLinePoint = new Vector3(0, 0, 0);
+        _currentStrokePoints.Clear();
+        _strokeStartTime = Time.time;
     }
 
     private void AddPoint(Vector3 position, float width)
@@ -88,21 +105,98 @@ public class LineDrawing : MonoBehaviour
             _currentLine.positionCount++;
             _currentLineWidths.Add(Math.Max(width * _maxLineWidth, _minLineWidth));
             _currentLine.SetPosition(_currentLine.positionCount - 1, position);
-
-            //create a new AnimationCurve
-            AnimationCurve curve = new AnimationCurve();
-
-            //populate the curve with keyframes based on the widths list
-
-            for (var i = 0; i < _currentLineWidths.Count; i++)
+            _currentStrokePoints.Add(new StrokePoint
             {
-                curve.AddKey(i / (float)(_currentLineWidths.Count - 1),
-                 _currentLineWidths[i]);
-            }
+                Position = position,
+                Pressure = width,
+                Timestamp = Time.time
+            });
 
-            //assign the curve to the widthCurve
-            _currentLine.widthCurve = curve;
+            ApplyWidthCurve(_currentLine, _currentLineWidths, _currentLineWidths.Count);
         }
+    }
+
+    private void FinalizeCurrentLine()
+    {
+        if (_currentLine == null || _currentStrokePoints.Count < 2 || _gestureInterpreter == null)
+        {
+            return;
+        }
+
+        var pressureTotal = 0f;
+        for (var i = 0; i < _currentStrokePoints.Count; i++)
+        {
+            pressureTotal += _currentStrokePoints[i].Pressure;
+        }
+
+        var stroke = new StrokeData
+        {
+            Points = new List<StrokePoint>(_currentStrokePoints),
+            Duration = Mathf.Max(Time.time - _strokeStartTime, 0.0001f),
+            AveragePressure = pressureTotal / _currentStrokePoints.Count
+        };
+
+        var readout = _gestureInterpreter.BuildReadout(stroke);
+        if (readout.DisplayPoints == null || readout.DisplayPoints.Count < 2)
+        {
+            return;
+        }
+
+        _currentLine.positionCount = readout.DisplayPoints.Count;
+        _currentLine.SetPositions(readout.DisplayPoints.ToArray());
+        var widthMultiplier = GetWidthMultiplier(readout.ShapeName);
+        ApplyWidthCurve(_currentLine, _currentLineWidths, readout.DisplayPoints.Count, widthMultiplier);
+        UpdateArrowTipVisual(_currentLine.gameObject, readout);
+        Debug.Log($"[LineDrawing] Snapped stroke to {readout.ShapeName} ({readout.Gesture.Confidence:0.00})");
+    }
+
+    private void ApplyWidthCurve(LineRenderer lineRenderer, IReadOnlyList<float> sourceWidths, int targetCount, float widthMultiplier = 1f)
+    {
+        if (lineRenderer == null || sourceWidths == null || sourceWidths.Count == 0)
+        {
+            return;
+        }
+
+        var curve = new AnimationCurve();
+        if (targetCount <= 1 || sourceWidths.Count == 1)
+        {
+            var width = sourceWidths[0] * widthMultiplier;
+            curve.AddKey(0f, width);
+            curve.AddKey(1f, width);
+            lineRenderer.widthCurve = curve;
+            lineRenderer.startWidth = width;
+            lineRenderer.endWidth = width;
+            return;
+        }
+
+        for (var i = 0; i < targetCount; i++)
+        {
+            var t = i / (float)(targetCount - 1);
+            curve.AddKey(t, SampleWidth(sourceWidths, t) * widthMultiplier);
+        }
+
+        lineRenderer.widthCurve = curve;
+        lineRenderer.startWidth = sourceWidths[0] * widthMultiplier;
+        lineRenderer.endWidth = sourceWidths[sourceWidths.Count - 1] * widthMultiplier;
+    }
+
+    private float SampleWidth(IReadOnlyList<float> sourceWidths, float normalizedT)
+    {
+        if (sourceWidths.Count == 1)
+        {
+            return sourceWidths[0];
+        }
+
+        var scaledIndex = normalizedT * (sourceWidths.Count - 1);
+        var minIndex = Mathf.FloorToInt(scaledIndex);
+        var maxIndex = Mathf.Min(minIndex + 1, sourceWidths.Count - 1);
+        var blend = scaledIndex - minIndex;
+        return Mathf.Lerp(sourceWidths[minIndex], sourceWidths[maxIndex], blend);
+    }
+
+    private float GetWidthMultiplier(string shapeName)
+    {
+        return shapeName == "Line" || shapeName == "Flick" ? SnappedLineWidthMultiplier : 1f;
     }
 
     private void RemoveLastLine()
@@ -154,6 +248,10 @@ public class LineDrawing : MonoBehaviour
         }
         else
         {
+            if (_isDrawing)
+            {
+                FinalizeCurrentLine();
+            }
             _isDrawing = false;
         }
 
@@ -278,6 +376,11 @@ public class LineDrawing : MonoBehaviour
         var lineRenderer = line.GetComponent<LineRenderer>();
         _cachedColor = lineRenderer.material.color;
         lineRenderer.material.color = highlightColor;
+        var arrowTip = line.GetComponent<LineArrowTip>();
+        if (arrowTip != null)
+        {
+            arrowTip.SetColor(highlightColor);
+        }
         //haptic click when highlighting a line
         ((VrStylusHandler)_stylusHandler).TriggerHapticClick();
     }
@@ -286,6 +389,11 @@ public class LineDrawing : MonoBehaviour
     {
         var lineRenderer = line.GetComponent<LineRenderer>();
         lineRenderer.material.color = _cachedColor;
+        var arrowTip = line.GetComponent<LineArrowTip>();
+        if (arrowTip != null)
+        {
+            arrowTip.SetColor(_cachedColor);
+        }
         _highlightedLine = null;
         //haptic click when unhighlighting a line
         ((VrStylusHandler)_stylusHandler).TriggerHapticClick();
@@ -317,5 +425,172 @@ public class LineDrawing : MonoBehaviour
         }
 
         lineRenderer.SetPositions(newPositions);
+        var arrowTip = _highlightedLine.GetComponent<LineArrowTip>();
+        if (arrowTip != null)
+        {
+            arrowTip.UpdateFromLine(lineRenderer, ArrowConeLength, ArrowConeRadius);
+        }
+    }
+
+    private void UpdateArrowTipVisual(GameObject lineObject, PhysicsGestureReadoutResult readout)
+    {
+        var lineRenderer = lineObject.GetComponent<LineRenderer>();
+        if (lineRenderer == null)
+        {
+            return;
+        }
+
+        var arrowTip = lineObject.GetComponent<LineArrowTip>();
+        if (readout.ShapeName != "Flick")
+        {
+            if (arrowTip != null)
+            {
+                Destroy(arrowTip);
+            }
+
+            return;
+        }
+
+        if (arrowTip == null)
+        {
+            arrowTip = lineObject.AddComponent<LineArrowTip>();
+        }
+
+        arrowTip.EnsureInitialized(_material, _currentColor);
+        arrowTip.UpdateFromLine(lineRenderer, ArrowConeLength, ArrowConeRadius);
+    }
+}
+
+[DisallowMultipleComponent]
+public sealed class LineArrowTip : MonoBehaviour
+{
+    private GameObject _coneObject;
+    private MeshFilter _meshFilter;
+    private MeshRenderer _meshRenderer;
+    private Mesh _coneMesh;
+
+    public void EnsureInitialized(Material baseMaterial, Color color)
+    {
+        if (_coneObject == null)
+        {
+            _coneObject = new GameObject("ArrowTip");
+            _coneObject.transform.SetParent(transform, false);
+            _meshFilter = _coneObject.AddComponent<MeshFilter>();
+            _meshRenderer = _coneObject.AddComponent<MeshRenderer>();
+            _coneMesh = BuildConeMesh(16);
+            _meshFilter.sharedMesh = _coneMesh;
+        }
+
+        if (_meshRenderer.sharedMaterial == null || _meshRenderer.sharedMaterial == baseMaterial)
+        {
+            _meshRenderer.material = new Material(baseMaterial);
+        }
+
+        _meshRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        _meshRenderer.receiveShadows = false;
+
+        SetColor(color);
+    }
+
+    public void UpdateFromLine(LineRenderer lineRenderer, float coneLength, float coneRadius)
+    {
+        if (_coneObject == null || lineRenderer == null || lineRenderer.positionCount < 2)
+        {
+            return;
+        }
+
+        var tip = lineRenderer.GetPosition(1);
+        var previous = lineRenderer.GetPosition(0);
+
+        if (lineRenderer.positionCount >= 4)
+        {
+            tip = lineRenderer.GetPosition(1);
+            previous = lineRenderer.GetPosition(0);
+        }
+        else
+        {
+            tip = lineRenderer.GetPosition(lineRenderer.positionCount - 1);
+            previous = lineRenderer.GetPosition(lineRenderer.positionCount - 2);
+        }
+
+        var direction = tip - previous;
+        if (direction.sqrMagnitude <= 0.000001f)
+        {
+            _coneObject.SetActive(false);
+            return;
+        }
+
+        _coneObject.SetActive(true);
+        _coneObject.transform.position = tip;
+        _coneObject.transform.rotation = Quaternion.FromToRotation(Vector3.up, direction.normalized);
+        _coneObject.transform.localScale = new Vector3(coneRadius * 2f, coneLength, coneRadius * 2f);
+    }
+
+    public void SetColor(Color color)
+    {
+        if (_meshRenderer == null)
+        {
+            return;
+        }
+
+        _meshRenderer.material.color = color;
+    }
+
+    private void OnDestroy()
+    {
+        if (_coneObject != null)
+        {
+            Destroy(_coneObject);
+        }
+
+        if (_meshRenderer != null && _meshRenderer.material != null)
+        {
+            Destroy(_meshRenderer.material);
+        }
+
+        if (_coneMesh != null)
+        {
+            Destroy(_coneMesh);
+        }
+    }
+
+    private Mesh BuildConeMesh(int sides)
+    {
+        var mesh = new Mesh
+        {
+            name = "ArrowTipCone"
+        };
+
+        var vertices = new List<Vector3> { new Vector3(0f, 1f, 0f) };
+        var triangles = new List<int>();
+
+        for (var i = 0; i < sides; i++)
+        {
+            var angle = (Mathf.PI * 2f * i) / sides;
+            vertices.Add(new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)));
+        }
+
+        vertices.Add(Vector3.zero);
+        var baseCenterIndex = vertices.Count - 1;
+
+        for (var i = 0; i < sides; i++)
+        {
+            var current = i + 1;
+            var next = ((i + 1) % sides) + 1;
+
+            triangles.Add(0);
+            triangles.Add(current);
+            triangles.Add(next);
+
+            triangles.Add(baseCenterIndex);
+            triangles.Add(next);
+            triangles.Add(current);
+        }
+
+        mesh.SetVertices(vertices);
+        mesh.SetTriangles(triangles, 0);
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
     }
 }

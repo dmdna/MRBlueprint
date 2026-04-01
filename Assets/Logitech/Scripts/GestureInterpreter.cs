@@ -3,6 +3,8 @@ using UnityEngine;
 
 public class GestureInterpreter : MonoBehaviour
 {
+    private const int CircleSegmentCount = 48;
+
     [SerializeField] private float _minimumStrokeDistance = 0.03f;
     [SerializeField] private float _flickSpeedThreshold = 1.2f;
     [SerializeField] private float _straightnessThreshold = 1.2f;
@@ -106,6 +108,7 @@ public class GestureInterpreter : MonoBehaviour
                 break;
         }
 
+        readout.DisplayPoints = BuildDisplayPoints(stroke, readout);
         return readout;
     }
 
@@ -176,6 +179,138 @@ public class GestureInterpreter : MonoBehaviour
 
         var normalizedStdDev = Mathf.Sqrt(variance / stroke.Points.Count) / averageRadius;
         return normalizedStdDev <= _circleRoundnessThreshold;
+    }
+
+    private List<Vector3> BuildDisplayPoints(StrokeData stroke, PhysicsGestureReadoutResult readout)
+    {
+        if (stroke == null || stroke.Points == null || stroke.Points.Count == 0)
+        {
+            return new List<Vector3>();
+        }
+
+        switch (readout.ShapeName)
+        {
+            case "Line":
+            case "Flick":
+                return BuildStraightDisplayPoints(stroke);
+            case "Circle":
+                return BuildCircleDisplayPoints(stroke);
+            case "Boundary":
+                return BuildClosedBoundaryDisplayPoints(stroke);
+            default:
+                return BuildRawDisplayPoints(stroke);
+        }
+    }
+
+    private List<Vector3> BuildRawDisplayPoints(StrokeData stroke)
+    {
+        var points = new List<Vector3>(stroke.Points.Count);
+        for (var i = 0; i < stroke.Points.Count; i++)
+        {
+            points.Add(stroke.Points[i].Position);
+        }
+
+        return points;
+    }
+
+    private List<Vector3> BuildStraightDisplayPoints(StrokeData stroke)
+    {
+        var points = new List<Vector3>(2)
+        {
+            stroke.Points[0].Position,
+            stroke.Points[stroke.Points.Count - 1].Position
+        };
+
+        return points;
+    }
+
+    private List<Vector3> BuildClosedBoundaryDisplayPoints(StrokeData stroke)
+    {
+        var points = BuildRawDisplayPoints(stroke);
+        if (points.Count == 0)
+        {
+            return points;
+        }
+
+        var start = points[0];
+        var end = points[points.Count - 1];
+        if (Vector3.Distance(start, end) > 0.0001f)
+        {
+            points.Add(start);
+        }
+
+        return points;
+    }
+
+    private List<Vector3> BuildCircleDisplayPoints(StrokeData stroke)
+    {
+        var center = Vector3.zero;
+        for (var i = 0; i < stroke.Points.Count; i++)
+        {
+            center += stroke.Points[i].Position;
+        }
+
+        center /= stroke.Points.Count;
+
+        var normal = CalculateLoopNormal(stroke, center);
+        var tangent = stroke.Points[0].Position - center;
+        tangent -= Vector3.Dot(tangent, normal) * normal;
+
+        if (tangent.sqrMagnitude <= 0.000001f)
+        {
+            tangent = Vector3.Cross(normal, Vector3.up);
+            if (tangent.sqrMagnitude <= 0.000001f)
+            {
+                tangent = Vector3.Cross(normal, Vector3.right);
+            }
+        }
+
+        tangent.Normalize();
+        var bitangent = Vector3.Cross(normal, tangent).normalized;
+
+        var radius = 0f;
+        for (var i = 0; i < stroke.Points.Count; i++)
+        {
+            radius += Vector3.Distance(center, stroke.Points[i].Position);
+        }
+
+        radius /= stroke.Points.Count;
+
+        var points = new List<Vector3>(CircleSegmentCount + 1);
+        for (var i = 0; i <= CircleSegmentCount; i++)
+        {
+            var angle = (Mathf.PI * 2f * i) / CircleSegmentCount;
+            var offset = (Mathf.Cos(angle) * tangent + Mathf.Sin(angle) * bitangent) * radius;
+            points.Add(center + offset);
+        }
+
+        return points;
+    }
+
+    private Vector3 CalculateLoopNormal(StrokeData stroke, Vector3 center)
+    {
+        var normal = Vector3.zero;
+        for (var i = 0; i < stroke.Points.Count; i++)
+        {
+            var current = stroke.Points[i].Position - center;
+            var next = stroke.Points[(i + 1) % stroke.Points.Count].Position - center;
+            normal += Vector3.Cross(current, next);
+        }
+
+        if (normal.sqrMagnitude <= 0.000001f)
+        {
+            var first = stroke.Points[0].Position;
+            var mid = stroke.Points[stroke.Points.Count / 2].Position;
+            var last = stroke.Points[stroke.Points.Count - 1].Position;
+            normal = Vector3.Cross(mid - first, last - first);
+        }
+
+        if (normal.sqrMagnitude <= 0.000001f)
+        {
+            return Vector3.forward;
+        }
+
+        return normal.normalized;
     }
 
     private float CalculatePathLength(IReadOnlyList<StrokePoint> points)

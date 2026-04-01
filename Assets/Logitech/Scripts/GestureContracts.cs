@@ -53,4 +53,5 @@ public class PhysicsGestureReadoutResult
     public PhysicsIntentType PhysicsIntent;
     public string ShapeName;
     public string Summary;
+    public List<Vector3> DisplayPoints = new List<Vector3>();
 }
