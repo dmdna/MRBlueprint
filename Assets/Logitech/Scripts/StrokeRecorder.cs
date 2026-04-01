@@ -12,6 +12,9 @@ public class StrokeRecorder : MonoBehaviour
     private float _pressureTotal;
     private Vector3 _lastPoint;
 
+    public bool IsRecording => _recording;
+    public IReadOnlyList<StrokePoint> CurrentPoints => _points;
+
     public void BeginStroke()
     {
         _points.Clear();

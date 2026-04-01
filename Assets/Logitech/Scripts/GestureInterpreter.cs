@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class GestureInterpreter : MonoBehaviour
@@ -6,7 +7,10 @@ public class GestureInterpreter : MonoBehaviour
     [SerializeField] private float _flickSpeedThreshold = 1.2f;
     [SerializeField] private float _straightnessThreshold = 1.2f;
     [SerializeField] private float _closedLoopThreshold = 0.04f;
+    [SerializeField] private float _loopEligibilityDistanceMultiplier = 2.5f;
     [SerializeField] private float _circleRoundnessThreshold = 0.35f;
+
+    public float ClosedLoopThreshold => _closedLoopThreshold;
 
     public GestureResult Classify(StrokeData stroke)
     {
@@ -105,26 +109,34 @@ public class GestureInterpreter : MonoBehaviour
         return readout;
     }
 
-    private float CalculatePathLength(StrokeData stroke)
+    public bool WouldClassifyAsClosedLoop(IReadOnlyList<StrokePoint> points)
     {
-        var length = 0f;
-        for (var i = 1; i < stroke.Points.Count; i++)
+        if (points == null || points.Count < 2)
         {
-            length += Vector3.Distance(stroke.Points[i - 1].Position, stroke.Points[i].Position);
+            return false;
         }
 
-        return length;
+        var start = points[0].Position;
+        var end = points[points.Count - 1].Position;
+        var chordLength = Vector3.Distance(start, end);
+        var pathLength = CalculatePathLength(points);
+        return IsClosedLoopCandidate(chordLength, pathLength);
+    }
+
+    private float CalculatePathLength(StrokeData stroke)
+    {
+        return CalculatePathLength(stroke.Points);
     }
 
     private bool IsClosedLoop(StrokeData stroke, float chordLength, float pathLength)
     {
-        return chordLength <= _closedLoopThreshold && pathLength >= _minimumStrokeDistance;
+        return IsClosedLoopCandidate(chordLength, pathLength);
     }
 
     private float CalculateLoopConfidence(StrokeData stroke, float chordLength, float pathLength)
     {
         var closureScore = 1f - Mathf.Clamp01(chordLength / Mathf.Max(_closedLoopThreshold, 0.001f));
-        var pathScore = Mathf.Clamp01(pathLength / (_minimumStrokeDistance * 4f));
+        var pathScore = Mathf.Clamp01(pathLength / (GetLoopEligibilityDistance() * 2f));
         return Mathf.Clamp01((closureScore + pathScore) * 0.5f);
     }
 
@@ -164,5 +176,26 @@ public class GestureInterpreter : MonoBehaviour
 
         var normalizedStdDev = Mathf.Sqrt(variance / stroke.Points.Count) / averageRadius;
         return normalizedStdDev <= _circleRoundnessThreshold;
+    }
+
+    private float CalculatePathLength(IReadOnlyList<StrokePoint> points)
+    {
+        var length = 0f;
+        for (var i = 1; i < points.Count; i++)
+        {
+            length += Vector3.Distance(points[i - 1].Position, points[i].Position);
+        }
+
+        return length;
+    }
+
+    private bool IsClosedLoopCandidate(float chordLength, float pathLength)
+    {
+        return chordLength <= _closedLoopThreshold && pathLength >= GetLoopEligibilityDistance();
+    }
+
+    private float GetLoopEligibilityDistance()
+    {
+        return Mathf.Max(_minimumStrokeDistance, _closedLoopThreshold * _loopEligibilityDistanceMultiplier);
     }
 }
