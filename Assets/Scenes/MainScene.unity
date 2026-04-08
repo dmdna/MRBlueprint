@@ -1032,7 +1032,7 @@ MonoBehaviour:
   _lineVisual: {fileID: 181175013}
   _explicitRayOrigin: {fileID: 0}
   _hideWhenStylusInactive: 1
-  _localPositionOffset: {x: 0, y: 0, z: 0}
+  _localPositionOffset: {x: 0, y: -0.2, z: 0}
   _localEulerOffset: {x: 90, y: 0, z: 0}
 --- !u!1001 &259765908
 PrefabInstance:
