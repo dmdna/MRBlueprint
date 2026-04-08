@@ -15,6 +15,7 @@ public class VrStylusHandler : StylusHandler
 
     [SerializeField] private GameObject _left_touch_controller;
     [SerializeField] private GameObject _right_touch_controller;
+    [SerializeField] private Transform _trackingSpace;
 
     public Color active_color = Color.green;
     public Color double_tap_active_color = Color.cyan;
@@ -53,6 +54,7 @@ public class VrStylusHandler : StylusHandler
         _middleActionRef.action.Enable();
 
         _stylus.isActive = false;
+        _trackingSpace = ResolveTrackingSpace();
         InputSystem.onDeviceChange += OnDeviceChange;
         InputDevices.deviceConnected += DeviceConnected;
 
@@ -133,9 +135,7 @@ public class VrStylusHandler : StylusHandler
         {
             if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion rotation))
             {
-                // Apply transform to a GameObject if needed
-                transform.position = position;
-                transform.rotation = rotation;
+                ApplyTrackingSpacePose(position, rotation);
             }
         }
     }
@@ -227,6 +227,47 @@ public class VrStylusHandler : StylusHandler
         _clusterFrontPropertyBlock = new MaterialPropertyBlock();
         _clusterMiddlePropertyBlock = new MaterialPropertyBlock();
         _clusterBackPropertyBlock = new MaterialPropertyBlock();
+    }
+
+    private void ApplyTrackingSpacePose(Vector3 localPosition, Quaternion localRotation)
+    {
+        _trackingSpace = ResolveTrackingSpace();
+
+        if (_trackingSpace != null)
+        {
+            transform.SetPositionAndRotation(
+                _trackingSpace.TransformPoint(localPosition),
+                _trackingSpace.rotation * localRotation);
+            return;
+        }
+
+        if (transform.parent != null)
+        {
+            transform.localPosition = localPosition;
+            transform.localRotation = localRotation;
+            return;
+        }
+
+        transform.SetPositionAndRotation(localPosition, localRotation);
+    }
+
+    private Transform ResolveTrackingSpace()
+    {
+        if (_trackingSpace != null)
+        {
+            return _trackingSpace;
+        }
+
+        for (Transform current = transform.parent; current != null; current = current.parent)
+        {
+            var trackingSpace = current.Find("TrackingSpace");
+            if (trackingSpace != null)
+            {
+                return trackingSpace;
+            }
+        }
+
+        return null;
     }
 
     private static void SetRendererColor(Renderer targetRenderer, MaterialPropertyBlock propertyBlock, Color color)
