@@ -143,10 +143,21 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             return;
         }
 
-        var isVisible = _stylusHandler.CurrentState.isActive;
+        var isVisible = _stylusHandler.IsTrackingStylus;
+
         if (_lineRenderer.enabled != isVisible)
         {
             _lineRenderer.enabled = isVisible;
+        }
+
+        if (_rayInteractor.enabled != isVisible)
+        {
+            _rayInteractor.enabled = isVisible;
+        }
+
+        if (_lineVisual != null && _lineVisual.enabled != isVisible)
+        {
+            _lineVisual.enabled = isVisible;
         }
     }
 
