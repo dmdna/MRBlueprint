@@ -19,6 +19,8 @@ public class VrStylusHandler : StylusHandler
     private float _hapticClickDuration = 0.011f;
     private float _hapticClickAmplitude = 1.0f;
 
+    public Transform TipTransform => _tip != null ? _tip.transform : transform;
+
     [SerializeField]
     private InputActionReference _middleActionRef;
     [SerializeField]

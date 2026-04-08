@@ -408,6 +408,7 @@ GameObject:
   - component: {fileID: 181175015}
   - component: {fileID: 181175014}
   - component: {fileID: 181175013}
+  - component: {fileID: 181175016}
   m_Layer: 0
   m_Name: MX_Ink_Ray_Interactor
   m_TagString: Untagged
@@ -606,7 +607,7 @@ LineRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 0}
+  - {fileID: 2100000, guid: 9f12d299d16099343a3c5c0d7285822a, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -1015,6 +1016,24 @@ MonoBehaviour:
     m_InputActionReference: {fileID: 0}
     m_ObjectReferenceObject: {fileID: 0}
     m_ManualValue: 0
+--- !u!114 &181175016
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 181175011}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9fe9f7dfb394c37b23326c21b4fd5e0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _stylusHandler: {fileID: 0}
+  _lineVisual: {fileID: 181175013}
+  _explicitRayOrigin: {fileID: 0}
+  _hideWhenStylusInactive: 1
+  _localPositionOffset: {x: 0, y: 0, z: 0}
+  _localEulerOffset: {x: 0, y: 0, z: 0}
 --- !u!1001 &259765908
 PrefabInstance:
   m_ObjectHideFlags: 0
