@@ -1,0 +1,233 @@
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+
+/// <summary>
+/// Editor-friendly input: raycasts from a camera for drawer tiles and placeable assets,
+/// toggles the content drawer, and confirms spawn with Space (see tooltips in inspector).
+/// Placeables: click without moving opens the inspector; drag moves the object in the plane
+/// facing the camera (includes vertical / “into the air” motion, not only along the floor).
+/// When a transform gizmo is present, handles are tried first (move / rotate / scale axes).
+/// </summary>
+public class SandboxEditorInputRouter : MonoBehaviour
+{
+    [SerializeField] private Camera viewCamera;
+    [SerializeField] private XRContentDrawerController drawerController;
+    [SerializeField] private XRDrawerItemSelectionManager drawerItemSelection;
+    [SerializeField] private PlaceableTransformGizmo transformGizmo;
+    [SerializeField] private float maxRayDistance = 100f;
+    [SerializeField] private LayerMask raycastMask = ~0;
+
+    [Header("Placeable mouse drag")]
+    [SerializeField] private float dragThresholdPixels = 10f;
+
+    private PlaceableAsset _placeablePressCandidate;
+    private Rigidbody _placeablePressRigidbody;
+    private Vector2 _placeablePressScreen;
+    private bool _placeableDragging;
+
+    private Plane _placeableDragPlane;
+    private Vector3 _placeableDragGrabOffset;
+    private bool _placeableDragPlaneReady;
+
+    private void Reset()
+    {
+        viewCamera = Camera.main;
+    }
+
+    private void Update()
+    {
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.dKey.wasPressedThisFrame && drawerController != null)
+                drawerController.ToggleDrawer();
+
+            if (Keyboard.current.spaceKey.wasPressedThisFrame
+                && drawerItemSelection != null
+                && drawerController != null
+                && drawerController.IsOpen)
+            {
+                drawerItemSelection.TryConfirmSpawnSelected();
+            }
+        }
+
+        if (Mouse.current == null)
+            return;
+
+        var mouse = Mouse.current;
+        var screenPos = mouse.position.ReadValue();
+
+        if (mouse.leftButton.wasReleasedThisFrame)
+        {
+            var gizmoWasDragging = transformGizmo != null && transformGizmo.IsDragging;
+            if (gizmoWasDragging)
+                transformGizmo.EndDrag();
+
+            if (!gizmoWasDragging
+                && !_placeableDragging
+                && _placeablePressCandidate != null
+                && AssetSelectionManager.Instance != null)
+                AssetSelectionManager.Instance.SelectAsset(_placeablePressCandidate);
+
+            _placeablePressCandidate = null;
+            _placeablePressRigidbody = null;
+            _placeableDragging = false;
+            _placeableDragPlaneReady = false;
+        }
+
+        var dragCamera = viewCamera != null ? viewCamera : Camera.main;
+        if (mouse.leftButton.isPressed && dragCamera != null)
+        {
+            var dragRay = dragCamera.ScreenPointToRay(screenPos);
+            if (transformGizmo != null && transformGizmo.IsDragging)
+                transformGizmo.Drag(dragRay, dragCamera);
+            else if (_placeablePressCandidate != null
+                     && _placeablePressRigidbody != null)
+            {
+                if (!_placeableDragging
+                    && Vector2.Distance(screenPos, _placeablePressScreen) >= dragThresholdPixels)
+                {
+                    _placeableDragging = true;
+                    TryBeginPlaceableViewPlaneDrag(screenPos);
+                }
+
+                if (_placeableDragging)
+                {
+                    if (AssetSelectionManager.Instance != null
+                        && AssetSelectionManager.Instance.SelectedAsset == _placeablePressCandidate)
+                    {
+                        AssetSelectionManager.Instance.ClearSelection();
+                    }
+
+                    TryMovePlaceableInViewPlane(screenPos);
+                }
+            }
+        }
+
+        if (!mouse.leftButton.wasPressedThisFrame)
+            return;
+
+        if (IsPointerOverUi())
+            return;
+
+        if (viewCamera == null)
+            viewCamera = Camera.main;
+
+        if (viewCamera == null)
+            return;
+
+        var ray = viewCamera.ScreenPointToRay(screenPos);
+        if (transformGizmo != null && transformGizmo.TryBeginDrag(ray, maxRayDistance, viewCamera))
+            return;
+        var hits = Physics.RaycastAll(ray, maxRayDistance, raycastMask, QueryTriggerInteraction.Collide);
+        if (hits == null || hits.Length == 0)
+        {
+            _placeablePressCandidate = null;
+            _placeablePressRigidbody = null;
+            if (AssetSelectionManager.Instance != null)
+                AssetSelectionManager.Instance.ClearSelection();
+            return;
+        }
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        foreach (var hit in hits)
+        {
+            if (hit.collider.GetComponent<DrawerTilePickTarget>() == null)
+                continue;
+
+            var drawerItem = hit.collider.GetComponentInParent<XRDrawerItem>();
+            if (drawerItem != null && drawerItemSelection != null)
+            {
+                _placeablePressCandidate = null;
+                _placeablePressRigidbody = null;
+                drawerItemSelection.SelectItem(drawerItem);
+                return;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            if (hit.collider.GetComponent<GizmoHandlePart>() != null)
+                continue;
+
+            var placeable = hit.collider.GetComponentInParent<PlaceableAsset>();
+            if (placeable != null)
+            {
+                _placeablePressCandidate = placeable;
+                _placeablePressRigidbody = placeable.Rigidbody;
+                _placeablePressScreen = screenPos;
+                _placeableDragging = false;
+                _placeableDragPlaneReady = false;
+                return;
+            }
+        }
+
+        _placeablePressCandidate = null;
+        _placeablePressRigidbody = null;
+        if (AssetSelectionManager.Instance != null)
+            AssetSelectionManager.Instance.ClearSelection();
+    }
+
+    /// <summary>
+    /// Fixed plane through the object when drag starts, facing the camera — mouse motion maps to 3D including Y.
+    /// </summary>
+    private void TryBeginPlaceableViewPlaneDrag(Vector2 screenPos)
+    {
+        var rb = _placeablePressRigidbody;
+        if (rb == null)
+            return;
+
+        var cam = viewCamera.transform;
+        _placeableDragPlane = new Plane(-cam.forward, rb.position);
+
+        var ray = viewCamera.ScreenPointToRay(screenPos);
+        if (_placeableDragPlane.Raycast(ray, out var dist))
+        {
+            var hitPoint = ray.GetPoint(dist);
+            _placeableDragGrabOffset = rb.position - hitPoint;
+            _placeableDragPlaneReady = true;
+        }
+        else
+        {
+            _placeableDragGrabOffset = Vector3.zero;
+            _placeableDragPlaneReady = false;
+        }
+    }
+
+    private void TryMovePlaceableInViewPlane(Vector2 screenPos)
+    {
+        var rb = _placeablePressRigidbody;
+        if (rb == null)
+            return;
+
+        if (!_placeableDragPlaneReady)
+            TryBeginPlaceableViewPlaneDrag(screenPos);
+
+        if (!_placeableDragPlaneReady)
+            return;
+
+        var ray = viewCamera.ScreenPointToRay(screenPos);
+        if (!_placeableDragPlane.Raycast(ray, out var dist))
+            return;
+
+        rb.position = ray.GetPoint(dist) + _placeableDragGrabOffset;
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+    }
+
+    private static bool IsPointerOverUi()
+    {
+        if (EventSystem.current == null || Mouse.current == null)
+            return false;
+
+        var eventData = new PointerEventData(EventSystem.current)
+        {
+            position = Mouse.current.position.ReadValue()
+        };
+
+        var results = new System.Collections.Generic.List<RaycastResult>();
+        EventSystem.current.RaycastAll(eventData, results);
+        return results.Count > 0;
+    }
+}

@@ -6,6 +6,7 @@ public class XRContentDrawerController : MonoBehaviour
     [SerializeField] private Transform xrCamera;
     [SerializeField] private Transform drawerRoot;
     [SerializeField] private FrostedGlassPanelAnimator panelAnimator;
+    [SerializeField] private XRDrawerItemSelectionManager drawerItemSelection;
 
     [Header("Placement")]
     [SerializeField] private float distanceFromCamera = 1.2f;
@@ -53,6 +54,7 @@ public class XRContentDrawerController : MonoBehaviour
     public void CloseDrawer()
     {
         isOpen = false;
+        drawerItemSelection?.ClearSelection();
 
         if (panelAnimator != null)
         {

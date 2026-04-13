@@ -1,5 +1,8 @@
 using UnityEngine;
 
+/// <summary>
+/// Selection for non–mouse paths (e.g. future XR direct). Editor mouse uses <see cref="SandboxEditorInputRouter"/>.
+/// </summary>
 public class SelectableAsset : MonoBehaviour
 {
     private PlaceableAsset placeableAsset;
@@ -7,12 +10,5 @@ public class SelectableAsset : MonoBehaviour
     private void Awake()
     {
         placeableAsset = GetComponent<PlaceableAsset>();
-    }
-
-    private void OnMouseDown()
-    {
-        // Works for desktop/testing if colliders exist.
-        // For XR later, you can replace this with raycast-based selection.
-        AssetSelectionManager.Instance.SelectAsset(placeableAsset);
     }
 }

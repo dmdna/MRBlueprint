@@ -35,6 +35,14 @@ public class PlaceableAsset : MonoBehaviour
         }
     }
 
+    private void OnDestroy()
+    {
+        if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.SelectedAsset == this)
+        {
+            AssetSelectionManager.Instance.ClearSelection();
+        }
+    }
+
     public Renderer[] GetRenderers()
     {
         return targetRenderers;
@@ -109,6 +117,21 @@ public class PlaceableAsset : MonoBehaviour
     public void SetRotationEuler(Vector3 newEuler)
     {
         transform.rotation = Quaternion.Euler(newEuler);
+    }
+
+    /// <summary>
+    /// Spins the object around world +Y (good for floor-placed props). Keeps the rigidbody in sync when present.
+    /// </summary>
+    public void RotateWorldY(float degrees)
+    {
+        var q = Quaternion.AngleAxis(degrees, Vector3.up) * transform.rotation;
+        if (rb != null)
+        {
+            rb.MoveRotation(q);
+            rb.angularVelocity = Vector3.zero;
+        }
+        else
+            transform.rotation = q;
     }
 
     public bool GetUseGravity()

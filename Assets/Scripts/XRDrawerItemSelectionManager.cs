@@ -20,14 +20,29 @@ public class XRDrawerItemSelectionManager : MonoBehaviour
         currentSelected.Select(xrCamera);
     }
 
-    public void ConfirmSpawnSelected()
+    /// <summary>
+    /// Spawns only when a drawer tile with a valid prefab is selected. Clears tile selection after spawn.
+    /// </summary>
+    public bool TryConfirmSpawnSelected()
     {
-        if (currentSelected == null) return;
-
-        if (drawerSpawner != null)
+        if (currentSelected == null)
         {
-            drawerSpawner.SpawnFromDrawerItem(currentSelected);
+            return false;
         }
+
+        if (currentSelected.SpawnPrefab == null)
+        {
+            return false;
+        }
+
+        if (drawerSpawner == null)
+        {
+            return false;
+        }
+
+        drawerSpawner.SpawnFromDrawerItem(currentSelected);
+        ClearSelection();
+        return true;
     }
 
     public void ClearSelection()
