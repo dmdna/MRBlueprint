@@ -1,16 +1,24 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
 /// <summary>
 /// Editor-friendly input: raycasts from a camera for drawer tiles and placeable assets,
-/// toggles the content drawer, and confirms spawn with Space (see tooltips in inspector).
+/// toggles the content drawer from D or either controller primary button, and confirms spawn with Space.
 /// Placeables: click without moving opens the inspector; drag moves the object in the plane
-/// facing the camera (includes vertical / “into the air” motion, not only along the floor).
+/// facing the camera (includes vertical / "into the air" motion, not only along the floor).
 /// When a transform gizmo is present, handles are tried first (move / rotate / scale axes).
 /// </summary>
 public class SandboxEditorInputRouter : MonoBehaviour
 {
+    private static readonly UnityEngine.XR.InputDeviceCharacteristics LeftControllerCharacteristics =
+        UnityEngine.XR.InputDeviceCharacteristics.Left | UnityEngine.XR.InputDeviceCharacteristics.Controller;
+
+    private static readonly UnityEngine.XR.InputDeviceCharacteristics RightControllerCharacteristics =
+        UnityEngine.XR.InputDeviceCharacteristics.Right | UnityEngine.XR.InputDeviceCharacteristics.Controller;
+
     [SerializeField] private Camera viewCamera;
     [SerializeField] private XRContentDrawerController drawerController;
     [SerializeField] private XRDrawerItemSelectionManager drawerItemSelection;
@@ -29,6 +37,10 @@ public class SandboxEditorInputRouter : MonoBehaviour
     private Plane _placeableDragPlane;
     private Vector3 _placeableDragGrabOffset;
     private bool _placeableDragPlaneReady;
+
+    private readonly List<UnityEngine.XR.InputDevice> _xrDevices = new();
+    private bool _leftPrimaryWasPressed;
+    private bool _rightPrimaryWasPressed;
 
     private void Reset()
     {
@@ -50,6 +62,18 @@ public class SandboxEditorInputRouter : MonoBehaviour
                 drawerItemSelection.TryConfirmSpawnSelected();
             }
         }
+
+        var leftPrimaryPressed = IsControllerPrimaryPressed(LeftControllerCharacteristics);
+        var rightPrimaryPressed = IsControllerPrimaryPressed(RightControllerCharacteristics);
+        var primaryPressedThisFrame =
+            (leftPrimaryPressed && !_leftPrimaryWasPressed) ||
+            (rightPrimaryPressed && !_rightPrimaryWasPressed);
+
+        _leftPrimaryWasPressed = leftPrimaryPressed;
+        _rightPrimaryWasPressed = rightPrimaryPressed;
+
+        if (primaryPressedThisFrame && drawerController != null)
+            drawerController.ToggleDrawer();
 
         if (Mouse.current == null)
             return;
@@ -169,8 +193,40 @@ public class SandboxEditorInputRouter : MonoBehaviour
             AssetSelectionManager.Instance.ClearSelection();
     }
 
+    private bool IsControllerPrimaryPressed(UnityEngine.XR.InputDeviceCharacteristics characteristics)
+    {
+        _xrDevices.Clear();
+        UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(characteristics, _xrDevices);
+
+        for (var i = 0; i < _xrDevices.Count; i++)
+        {
+            var device = _xrDevices[i];
+            if (!device.isValid || IsLogitechStylus(device))
+                continue;
+
+            if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out var pressed) && pressed)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsLogitechStylus(UnityEngine.XR.InputDevice device)
+    {
+        return ContainsDeviceText(device.name, "Logitech")
+               || ContainsDeviceText(device.name, "MX Ink")
+               || ContainsDeviceText(device.name, "Stylus")
+               || ContainsDeviceText(device.manufacturer, "Logitech");
+    }
+
+    private static bool ContainsDeviceText(string value, string match)
+    {
+        return !string.IsNullOrEmpty(value)
+               && value.IndexOf(match, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     /// <summary>
-    /// Fixed plane through the object when drag starts, facing the camera — mouse motion maps to 3D including Y.
+    /// Fixed plane through the object when drag starts, facing the camera; mouse motion maps to 3D including Y.
     /// </summary>
     private void TryBeginPlaceableViewPlaneDrag(Vector2 screenPos)
     {
