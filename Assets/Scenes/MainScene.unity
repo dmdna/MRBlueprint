@@ -2928,6 +2928,13 @@ MonoBehaviour:
   scaleMin: 0.2
   scaleMax: 4
   yawStepDegrees: 15
+  useHeadsetAnchoredCanvas: 1
+  headsetPanelAnchor: {fileID: 62082202}
+  headsetPanelCamera: {fileID: 62082203}
+  headsetPanelLocalPosition: {x: 0.45, y: 0, z: 1.15}
+  headsetPanelLocalEuler: {x: 0, y: 0, z: 0}
+  headsetPanelWorldScale: 0.0015
+  headsetPanelCanvasSize: {x: 320, y: 456}
 --- !u!114 &888800010
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4976,6 +4983,67 @@ PrefabInstance:
       addedObject: {fileID: 181175012}
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 20251267c934dac4da1e6f18041047e9, type: 3}
+--- !u!1 &990882001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 990882002}
+  - component: {fileID: 990882003}
+  m_Layer: 0
+  m_Name: NonStylusControllerRayVisuals
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &990882002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 990882001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &990882003
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 990882001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c077c3e714e2453482879bca69819de5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::NonStylusControllerRayVisuals
+  stylusHandler: {fileID: 2041492266}
+  controlModeSource: {fileID: 395236580}
+  leftControllerRayOrigin: {fileID: 1133742836}
+  rightControllerRayOrigin: {fileID: 409141786}
+  lineTemplate: {fileID: 181175014}
+  raycastMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  selectionRayLength: 8
+  drawingRayLength: 30
+  requireTrackedController: 1
+  showBothControllersWhenNoStylus: 1
+  localPositionOffset: {x: 0, y: 0, z: 0}
+  localEulerOffset: {x: 0, y: 0, z: 0}
+  triggerPressThreshold: 0.55
+  fallbackLineWidth: 0.002
+  fallbackLineColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -4990,3 +5058,4 @@ SceneRoots:
   - {fileID: 395236581}
   - {fileID: 888800002}
   - {fileID: 990881002}
+  - {fileID: 990882002}

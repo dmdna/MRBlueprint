@@ -14,10 +14,18 @@ public class PlaceableInspectorPanel : MonoBehaviour
     [SerializeField] private float scaleMin = 0.2f;
     [SerializeField] private float scaleMax = 4f;
     [SerializeField] private float yawStepDegrees = 15f;
+    [SerializeField] private bool useHeadsetAnchoredCanvas;
+    [SerializeField] private Transform headsetPanelAnchor;
+    [SerializeField] private Camera headsetPanelCamera;
+    [SerializeField] private Vector3 headsetPanelLocalPosition = new Vector3(0.45f, 0f, 1.15f);
+    [SerializeField] private Vector3 headsetPanelLocalEuler = Vector3.zero;
+    [SerializeField] private float headsetPanelWorldScale = 0.0015f;
+    [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(320f, 456f);
 
     private PlaceableAsset _target;
     private Vector3 _scaleBasis = Vector3.one;
     private float _scaleUniformRef = 1f;
+    private GameObject _canvasRoot;
     private GameObject _panelRoot;
     private Slider _massSlider;
     private Slider _scaleSlider;
@@ -52,6 +60,11 @@ public class PlaceableInspectorPanel : MonoBehaviour
 
         if (_hueWheel != null)
             _hueWheel.HsChanged -= OnWheelHsChanged;
+
+        if (_canvasRoot != null)
+        {
+            Destroy(_canvasRoot);
+        }
     }
 
     private void OnSelectionChanged(PlaceableAsset asset)
@@ -103,10 +116,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private void BuildUi()
     {
         var canvasGo = new GameObject("PlaceableInspectorCanvas");
-        canvasGo.transform.SetParent(transform, false);
         var canvas = canvasGo.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvasGo.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        ConfigureCanvas(canvasGo, canvas);
         canvasGo.AddComponent<GraphicRaycaster>();
 
         _panelRoot = new GameObject("Panel");
@@ -170,6 +181,60 @@ public class PlaceableInspectorPanel : MonoBehaviour
         CreateButton(_panelRoot.transform, "Delete", ref y, rowH + 6, gap, OnDeleteClicked);
 
         _panelRoot.SetActive(false);
+    }
+
+    private void ConfigureCanvas(GameObject canvasGo, Canvas canvas)
+    {
+        _canvasRoot = canvasGo;
+        var scaler = canvasGo.AddComponent<CanvasScaler>();
+
+        if (!useHeadsetAnchoredCanvas)
+        {
+            canvasGo.transform.SetParent(transform, false);
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            return;
+        }
+
+        var anchor = ResolveHeadsetPanelAnchor();
+        canvasGo.transform.SetParent(anchor != null ? anchor : transform, false);
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = ResolveHeadsetPanelCamera(anchor);
+
+        var canvasRect = canvasGo.GetComponent<RectTransform>();
+        canvasRect.sizeDelta = headsetPanelCanvasSize;
+        canvasRect.localPosition = headsetPanelLocalPosition;
+        canvasRect.localRotation = Quaternion.Euler(headsetPanelLocalEuler);
+        canvasRect.localScale = Vector3.one * headsetPanelWorldScale;
+
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        scaler.dynamicPixelsPerUnit = 10f;
+    }
+
+    private Transform ResolveHeadsetPanelAnchor()
+    {
+        if (headsetPanelAnchor != null)
+        {
+            return headsetPanelAnchor;
+        }
+
+        var mainCamera = Camera.main;
+        return mainCamera != null ? mainCamera.transform : null;
+    }
+
+    private Camera ResolveHeadsetPanelCamera(Transform anchor)
+    {
+        if (headsetPanelCamera != null)
+        {
+            return headsetPanelCamera;
+        }
+
+        if (anchor != null && anchor.TryGetComponent<Camera>(out var anchorCamera))
+        {
+            return anchorCamera;
+        }
+
+        return Camera.main;
     }
 
     private void OnMassChanged(float t)
