@@ -11,7 +11,12 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     [SerializeField] private VrStylusHandler _stylusHandler;
     [SerializeField] private XRInteractorLineVisual _lineVisual;
     [SerializeField] private Transform _explicitRayOrigin;
+    [SerializeField] private XRContentDrawerController _controlModeSource;
+    [SerializeField] private XRDrawerItemSelectionManager _drawerItemSelection;
     [SerializeField] private bool _hideWhenStylusInactive = true;
+    [SerializeField] private bool _hideOutsideSelectionMode = true;
+    [SerializeField] private float _drawerSelectionRayDistance = 8f;
+    [SerializeField] private LayerMask _drawerSelectionRaycastMask = ~0;
     [SerializeField] private Vector3 _localPositionOffset = Vector3.zero;
     [SerializeField] private Vector3 _localEulerOffset = Vector3.zero;
 
@@ -19,6 +24,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     private LineRenderer _lineRenderer;
     private Transform _runtimeRayOrigin;
     private Material _runtimeMaterial;
+    private bool _clusterBackWasPressed;
 
     private static readonly Color ValidColor = Color.white;
     private static readonly Color InvalidColor = new(1f, 0.35f, 0.35f, 1f);
@@ -39,16 +45,22 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             _stylusHandler = GetComponentInParent<VrStylusHandler>();
         }
 
+        ResolveControlModeSource();
+        ResolveDrawerItemSelection();
         EnsureRayOrigin();
         ApplyLineSetup();
         ApplyRayBindings();
+        UpdateVisibility();
     }
 
     private void LateUpdate()
     {
+        ResolveControlModeSource();
+        ResolveDrawerItemSelection();
         EnsureRayOrigin();
         ApplyRayBindings();
         UpdateVisibility();
+        HandleSelectionModeInteractions();
     }
 
     private void OnDestroy()
@@ -138,12 +150,11 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     private void UpdateVisibility()
     {
-        if (!_hideWhenStylusInactive || _stylusHandler == null)
-        {
-            return;
-        }
-
-        var isVisible = _stylusHandler.IsTrackingStylus;
+        var stylusIsVisible = !_hideWhenStylusInactive
+                              || _stylusHandler == null
+                              || _stylusHandler.IsTrackingStylus;
+        var modeIsVisible = !_hideOutsideSelectionMode || IsSelectionMode();
+        var isVisible = stylusIsVisible && modeIsVisible;
 
         if (_lineRenderer.enabled != isVisible)
         {
@@ -159,6 +170,97 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         {
             _lineVisual.enabled = isVisible;
         }
+    }
+
+    private void HandleSelectionModeInteractions()
+    {
+        var clusterBackPressed = _stylusHandler != null && _stylusHandler.CurrentState.cluster_back_value;
+
+        if (!CanUseSelectionRay())
+        {
+            _clusterBackWasPressed = clusterBackPressed;
+            return;
+        }
+
+        TrySelectDrawerItemUnderRay();
+
+        if (clusterBackPressed && !_clusterBackWasPressed && _drawerItemSelection != null)
+        {
+            _drawerItemSelection.TryConfirmSpawnSelected();
+        }
+
+        _clusterBackWasPressed = clusterBackPressed;
+    }
+
+    private bool CanUseSelectionRay()
+    {
+        return IsSelectionMode()
+               && (!_hideWhenStylusInactive || _stylusHandler == null || _stylusHandler.IsTrackingStylus);
+    }
+
+    private void TrySelectDrawerItemUnderRay()
+    {
+        if (_runtimeRayOrigin == null || _drawerItemSelection == null)
+        {
+            return;
+        }
+
+        var hits = Physics.RaycastAll(
+            _runtimeRayOrigin.position,
+            _runtimeRayOrigin.forward,
+            _drawerSelectionRayDistance,
+            _drawerSelectionRaycastMask,
+            QueryTriggerInteraction.Collide);
+
+        if (hits == null || hits.Length == 0)
+        {
+            return;
+        }
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        foreach (var hit in hits)
+        {
+            if (hit.collider.GetComponent<DrawerTilePickTarget>() == null)
+            {
+                continue;
+            }
+
+            var drawerItem = hit.collider.GetComponentInParent<XRDrawerItem>();
+            if (drawerItem == null)
+            {
+                continue;
+            }
+
+            _drawerItemSelection.SelectItem(drawerItem);
+            return;
+        }
+    }
+
+    private bool IsSelectionMode()
+    {
+        ResolveControlModeSource();
+        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Selection;
+    }
+
+    private void ResolveControlModeSource()
+    {
+        if (_controlModeSource != null)
+        {
+            return;
+        }
+
+        _controlModeSource = FindFirstObjectByType<XRContentDrawerController>(FindObjectsInactive.Include);
+    }
+
+    private void ResolveDrawerItemSelection()
+    {
+        if (_drawerItemSelection != null)
+        {
+            return;
+        }
+
+        _drawerItemSelection = FindFirstObjectByType<XRDrawerItemSelectionManager>(FindObjectsInactive.Include);
     }
 
     private static Gradient BuildGradient(Color color)

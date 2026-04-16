@@ -61,6 +61,7 @@ public class LineDrawing : MonoBehaviour
     [SerializeField]
     private StylusHandler _stylusHandler;
     [SerializeField] private GestureInterpreter _gestureInterpreter;
+    [SerializeField] private XRContentDrawerController _controlModeSource;
     private Vector3 _previousLinePoint;
     private const float _minDistanceBetweenLinePoints = 0.0005f;
     private float _strokeStartTime;
@@ -71,6 +72,8 @@ public class LineDrawing : MonoBehaviour
         {
             _gestureInterpreter = FindFirstObjectByType<GestureInterpreter>();
         }
+
+        ResolveControlModeSource();
     }
 
     private void StartNewLine()
@@ -228,6 +231,12 @@ public class LineDrawing : MonoBehaviour
 
     void Update()
     {
+        if (IsSelectionMode())
+        {
+            SuspendDrawingForSelectionMode();
+            return;
+        }
+
         float analogInput = Mathf.Max(_stylusHandler.CurrentState.tip_value, _stylusHandler.CurrentState.cluster_middle_value);
 
         if (analogInput > 0 && _stylusHandler.CanDraw())
@@ -385,7 +394,7 @@ public class LineDrawing : MonoBehaviour
         ((VrStylusHandler)_stylusHandler).TriggerHapticClick();
     }
 
-    private void UnhighlightLine(GameObject line)
+    private void UnhighlightLine(GameObject line, bool triggerHaptic = true)
     {
         var lineRenderer = line.GetComponent<LineRenderer>();
         lineRenderer.material.color = _cachedColor;
@@ -395,8 +404,44 @@ public class LineDrawing : MonoBehaviour
             arrowTip.SetColor(_cachedColor);
         }
         _highlightedLine = null;
-        //haptic click when unhighlighting a line
-        ((VrStylusHandler)_stylusHandler).TriggerHapticClick();
+        if (triggerHaptic)
+        {
+            //haptic click when unhighlighting a line
+            ((VrStylusHandler)_stylusHandler).TriggerHapticClick();
+        }
+    }
+
+    private bool IsSelectionMode()
+    {
+        ResolveControlModeSource();
+        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Selection;
+    }
+
+    private void ResolveControlModeSource()
+    {
+        if (_controlModeSource != null)
+        {
+            return;
+        }
+
+        _controlModeSource = FindFirstObjectByType<XRContentDrawerController>(FindObjectsInactive.Include);
+    }
+
+    private void SuspendDrawingForSelectionMode()
+    {
+        if (_isDrawing)
+        {
+            FinalizeCurrentLine();
+            _isDrawing = false;
+        }
+
+        if (_highlightedLine != null)
+        {
+            UnhighlightLine(_highlightedLine, false);
+        }
+
+        _movingLine = false;
+        _doubleTapDetected = false;
     }
 
     private void StartGrabbingLine()

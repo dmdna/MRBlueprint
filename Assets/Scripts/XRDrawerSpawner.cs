@@ -25,6 +25,12 @@ public class XRDrawerSpawner : MonoBehaviour
 
     private Camera _resolvedCamera;
 
+    public float FallbackGroundY
+    {
+        get => fallbackGroundY;
+        set => fallbackGroundY = value;
+    }
+
     private void Awake()
     {
         _resolvedCamera = placementCamera != null

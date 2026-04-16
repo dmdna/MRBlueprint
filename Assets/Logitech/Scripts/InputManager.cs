@@ -3,6 +3,12 @@ using UnityEngine;
 public class InputManager : MonoBehaviour
 {
     [SerializeField] private StylusHandler _stylusHandler;
+    [SerializeField] private XRContentDrawerController _controlModeSource;
+
+    private void Awake()
+    {
+        ResolveControlModeSource();
+    }
 
     public Vector3 GetStylusPosition()
     {
@@ -21,6 +27,22 @@ public class InputManager : MonoBehaviour
 
     public bool IsDrawing()
     {
-        return GetPressure() > 0f && _stylusHandler.CanDraw();
+        return !IsSelectionMode() && GetPressure() > 0f && _stylusHandler.CanDraw();
+    }
+
+    private bool IsSelectionMode()
+    {
+        ResolveControlModeSource();
+        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Selection;
+    }
+
+    private void ResolveControlModeSource()
+    {
+        if (_controlModeSource != null)
+        {
+            return;
+        }
+
+        _controlModeSource = FindFirstObjectByType<XRContentDrawerController>(FindObjectsInactive.Include);
     }
 }

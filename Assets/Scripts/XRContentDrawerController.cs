@@ -1,4 +1,11 @@
+using System;
 using UnityEngine;
+
+public enum XRControlMode
+{
+    Drawing,
+    Selection
+}
 
 public class XRContentDrawerController : MonoBehaviour
 {
@@ -17,13 +24,18 @@ public class XRContentDrawerController : MonoBehaviour
     [SerializeField] private bool isOpen;
 
     public bool IsOpen => isOpen;
+    public XRControlMode CurrentMode => isOpen ? XRControlMode.Selection : XRControlMode.Drawing;
+
+    public event Action<XRControlMode> ControlModeChanged;
 
     private void Start()
     {
-        if (!isOpen)
+        if (!isOpen && drawerRoot != null)
         {
             drawerRoot.gameObject.SetActive(false);
         }
+
+        ControlModeChanged?.Invoke(CurrentMode);
     }
 
     public void ToggleDrawer()
@@ -40,10 +52,20 @@ public class XRContentDrawerController : MonoBehaviour
 
     public void OpenDrawer()
     {
+        if (isOpen)
+        {
+            return;
+        }
+
         PositionDrawerInFrontOfPlayer();
 
-        drawerRoot.gameObject.SetActive(true);
+        if (drawerRoot != null)
+        {
+            drawerRoot.gameObject.SetActive(true);
+        }
+
         isOpen = true;
+        ControlModeChanged?.Invoke(CurrentMode);
 
         if (panelAnimator != null)
         {
@@ -53,17 +75,26 @@ public class XRContentDrawerController : MonoBehaviour
 
     public void CloseDrawer()
     {
+        if (!isOpen)
+        {
+            return;
+        }
+
         isOpen = false;
+        ControlModeChanged?.Invoke(CurrentMode);
         drawerItemSelection?.ClearSelection();
 
         if (panelAnimator != null)
         {
             panelAnimator.Close(() =>
             {
-                drawerRoot.gameObject.SetActive(false);
+                if (drawerRoot != null)
+                {
+                    drawerRoot.gameObject.SetActive(false);
+                }
             });
         }
-        else
+        else if (drawerRoot != null)
         {
             drawerRoot.gameObject.SetActive(false);
         }
