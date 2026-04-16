@@ -2931,7 +2931,7 @@ MonoBehaviour:
   useHeadsetAnchoredCanvas: 1
   headsetPanelAnchor: {fileID: 62082202}
   headsetPanelCamera: {fileID: 62082203}
-  headsetPanelLocalPosition: {x: 0.45, y: 0, z: 1.15}
+  headsetPanelLocalPosition: {x: 0.32, y: 0, z: 1.15}
   headsetPanelLocalEuler: {x: 0, y: 0, z: 0}
   headsetPanelWorldScale: 0.0015
   headsetPanelCanvasSize: {x: 320, y: 456}
@@ -5042,6 +5042,14 @@ MonoBehaviour:
   localPositionOffset: {x: 0, y: 0, z: 0}
   localEulerOffset: {x: 0, y: 0, z: 0}
   triggerPressThreshold: 0.55
+  gripPressThreshold: 0.55
+  thumbstickDepthSpeed: 1.2
+  thumbstickDeadzone: 0.18
+  minGrabDistance: 0.25
+  maxGrabDistance: 8
+  enableWorldUiPointer: 1
+  uiCanvasName: PlaceableInspectorCanvas
+  uiRayDistance: 8
   fallbackLineWidth: 0.002
   fallbackLineColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1660057539 &9223372036854775807

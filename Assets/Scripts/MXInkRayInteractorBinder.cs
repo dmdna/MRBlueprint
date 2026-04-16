@@ -4,6 +4,7 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors;
 using UnityEngine.XR.Interaction.Toolkit.Interactors.Visuals;
 
 [DisallowMultipleComponent]
+[DefaultExecutionOrder(-100)]
 [RequireComponent(typeof(XRRayInteractor))]
 [RequireComponent(typeof(LineRenderer))]
 public class MXInkRayInteractorBinder : MonoBehaviour
@@ -13,6 +14,8 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     [SerializeField] private Transform _explicitRayOrigin;
     [SerializeField] private XRContentDrawerController _controlModeSource;
     [SerializeField] private XRDrawerItemSelectionManager _drawerItemSelection;
+    [SerializeField] private PlaceableTransformGizmo _transformGizmo;
+    [SerializeField] private Camera _transformGizmoCamera;
     [SerializeField] private bool _hideWhenStylusInactive = true;
     [SerializeField] private bool _hideOutsideSelectionMode = true;
     [SerializeField] private float _drawerSelectionRayDistance = 8f;
@@ -20,11 +23,28 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     [SerializeField] private Vector3 _localPositionOffset = Vector3.zero;
     [SerializeField] private Vector3 _localEulerOffset = Vector3.zero;
 
+    [Header("Placeable and UI Pointer")]
+    [SerializeField] private bool _enableWorldUiPointer = true;
+    [SerializeField] private string _uiCanvasName = "PlaceableInspectorCanvas";
+    [SerializeField] private float _uiRayDistance = 8f;
+    [SerializeField] private float _placeableRayDistance = 8f;
+    [SerializeField] private LayerMask _placeableRaycastMask = ~0;
+    [SerializeField] private float _minGrabDistance = 0.25f;
+    [SerializeField] private float _maxGrabDistance = 8f;
+
+    private const int MXInkPointerId = -12003;
+
     private XRRayInteractor _rayInteractor;
     private LineRenderer _lineRenderer;
     private Transform _runtimeRayOrigin;
     private Material _runtimeMaterial;
+    private WorldSpaceUiRayPointer.State _uiPointerState;
     private bool _clusterBackWasPressed;
+    private bool _clusterFrontWasPressed;
+    private bool _stylusGizmoDragging;
+
+    public static bool RearButtonSelectionTargetActive { get; private set; }
+    public static bool FrontButtonShapeGrabTargetActive { get; private set; }
 
     private static readonly Color ValidColor = Color.white;
     private static readonly Color InvalidColor = new(1f, 0.35f, 0.35f, 1f);
@@ -47,28 +67,54 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
         ResolveControlModeSource();
         ResolveDrawerItemSelection();
+        ResolveTransformGizmo();
         EnsureRayOrigin();
         ApplyLineSetup();
         ApplyRayBindings();
-        UpdateVisibility();
+        UpdateVisibility(default);
+    }
+
+    private void Update()
+    {
+        ResolveControlModeSource();
+        ResolveTransformGizmo();
+        EnsureRayOrigin();
+        ApplyRayBindings();
+        BuildPointerState();
     }
 
     private void LateUpdate()
     {
         ResolveControlModeSource();
         ResolveDrawerItemSelection();
+        ResolveTransformGizmo();
         EnsureRayOrigin();
         ApplyRayBindings();
-        UpdateVisibility();
-        HandleSelectionModeInteractions();
+        var pointerState = BuildPointerState();
+        HandleFrontButtonGrab(pointerState);
+        HandleRearButtonInteractions(pointerState);
+        UpdateVisibility(pointerState);
     }
 
     private void OnDestroy()
     {
+        EndGizmoDrag();
+        PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
+        RearButtonSelectionTargetActive = false;
+        FrontButtonShapeGrabTargetActive = false;
+
         if (_runtimeMaterial != null)
         {
             Destroy(_runtimeMaterial);
         }
+    }
+
+    private void OnDisable()
+    {
+        EndGizmoDrag();
+        PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
+        RearButtonSelectionTargetActive = false;
+        FrontButtonShapeGrabTargetActive = false;
     }
 
     private void EnsureRayOrigin()
@@ -131,6 +177,8 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     private void ApplyLineSetup()
     {
+        _lineRenderer.positionCount = 2;
+        _lineRenderer.useWorldSpace = true;
         _lineRenderer.alignment = LineAlignment.View;
         _lineRenderer.shadowCastingMode = ShadowCastingMode.Off;
         _lineRenderer.receiveShadows = false;
@@ -148,61 +196,328 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         _lineRenderer.endColor = ValidColor;
     }
 
-    private void UpdateVisibility()
+    private StylusPointerState BuildPointerState()
+    {
+        if (!CanUseStylusRay() || _runtimeRayOrigin == null)
+        {
+            RearButtonSelectionTargetActive = false;
+            FrontButtonShapeGrabTargetActive = false;
+            return default;
+        }
+
+        var origin = _runtimeRayOrigin.position;
+        var direction = _runtimeRayOrigin.forward;
+        if (direction.sqrMagnitude <= 0.0001f)
+        {
+            RearButtonSelectionTargetActive = false;
+            FrontButtonShapeGrabTargetActive = false;
+            return default;
+        }
+
+        direction.Normalize();
+        var pointerState = new StylusPointerState
+        {
+            IsUsable = true,
+            Origin = origin,
+            Direction = direction
+        };
+
+        if (WorldSpaceUiRayPointer.TryGetHit(
+                _enableWorldUiPointer,
+                _uiCanvasName,
+                origin,
+                direction,
+                Mathf.Max(_uiRayDistance, _placeableRayDistance),
+                out var uiHit))
+        {
+            pointerState.HasUiHit = true;
+            pointerState.UiHit = uiHit;
+        }
+
+        if (TryGetFirstRayHit(
+                origin,
+                direction,
+                _placeableRayDistance,
+                out var hit,
+                out var placeable,
+                out var gizmoPart))
+        {
+            pointerState.HasHit = true;
+            pointerState.Hit = hit;
+            pointerState.HoveredShape = placeable;
+            pointerState.HoveredGizmoPart = gizmoPart;
+        }
+
+        RearButtonSelectionTargetActive = pointerState.HasUiHit
+                                          || pointerState.HoveredShape != null
+                                          || pointerState.HoveredGizmoPart != null
+                                          || _stylusGizmoDragging;
+        FrontButtonShapeGrabTargetActive = ResolvePlaceableGrabTarget(pointerState) != null
+                                           || PlaceableMultiGrabCoordinator.IsSourceGrabbing(
+                                               PlaceableMultiGrabCoordinator.MXInkSourceId);
+        return pointerState;
+    }
+
+    private void UpdateVisibility(StylusPointerState pointerState)
     {
         var stylusIsVisible = !_hideWhenStylusInactive
                               || _stylusHandler == null
                               || _stylusHandler.IsTrackingStylus;
-        var modeIsVisible = !_hideOutsideSelectionMode || IsSelectionMode();
-        var isVisible = stylusIsVisible && modeIsVisible;
+        var isSelectionMode = IsSelectionMode();
+        var isGrabbing = PlaceableMultiGrabCoordinator.IsSourceGrabbing(PlaceableMultiGrabCoordinator.MXInkSourceId);
+        var modeIsVisible = !_hideOutsideSelectionMode || isSelectionMode;
+        var hasManualTarget = pointerState.HasUiHit
+                              || pointerState.HoveredShape != null
+                              || pointerState.HoveredGizmoPart != null
+                              || isGrabbing
+                              || _stylusGizmoDragging;
+        var isVisible = stylusIsVisible && (modeIsVisible || hasManualTarget);
+        var useManualLine = isVisible && pointerState.IsUsable && hasManualTarget;
+
+        if (useManualLine)
+        {
+            ApplyManualLine(pointerState);
+        }
 
         if (_lineRenderer.enabled != isVisible)
         {
             _lineRenderer.enabled = isVisible;
         }
 
-        if (_rayInteractor.enabled != isVisible)
+        if (_rayInteractor.enabled != isVisible && !useManualLine)
         {
             _rayInteractor.enabled = isVisible;
         }
+        else if (useManualLine && _rayInteractor.enabled)
+        {
+            _rayInteractor.enabled = false;
+        }
 
-        if (_lineVisual != null && _lineVisual.enabled != isVisible)
+        if (_lineVisual != null && _lineVisual.enabled != isVisible && !useManualLine)
         {
             _lineVisual.enabled = isVisible;
         }
+        else if (useManualLine && _lineVisual != null && _lineVisual.enabled)
+        {
+            _lineVisual.enabled = false;
+        }
     }
 
-    private void HandleSelectionModeInteractions()
+    private void ApplyManualLine(StylusPointerState pointerState)
+    {
+        if (_lineRenderer == null)
+        {
+            return;
+        }
+
+        var endPoint = pointerState.Origin + pointerState.Direction * Mathf.Max(0.01f, _drawerSelectionRayDistance);
+        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(
+                PlaceableMultiGrabCoordinator.MXInkSourceId,
+                out var grabPoint))
+        {
+            endPoint = grabPoint;
+        }
+        else if (pointerState.HasUiHit)
+        {
+            endPoint = pointerState.UiHit.WorldPoint;
+        }
+        else if (pointerState.HasHit)
+        {
+            endPoint = pointerState.Hit.point;
+        }
+
+        _lineRenderer.positionCount = 2;
+        _lineRenderer.SetPosition(0, pointerState.Origin);
+        _lineRenderer.SetPosition(1, endPoint);
+    }
+
+    private void HandleRearButtonInteractions(StylusPointerState pointerState)
     {
         var clusterBackPressed = _stylusHandler != null && _stylusHandler.CurrentState.cluster_back_value;
 
-        if (!CanUseSelectionRay())
+        if (!pointerState.IsUsable)
+        {
+            EndGizmoDrag();
+            WorldSpaceUiRayPointer.Handle(
+                _enableWorldUiPointer,
+                false,
+                default,
+                false,
+                ref _uiPointerState,
+                MXInkPointerId);
+            _clusterBackWasPressed = clusterBackPressed;
+            return;
+        }
+
+        if (HandleGizmoDrag(pointerState, clusterBackPressed))
         {
             _clusterBackWasPressed = clusterBackPressed;
             return;
         }
 
-        TrySelectDrawerItemUnderRay();
+        var uiHandled = WorldSpaceUiRayPointer.Handle(
+            _enableWorldUiPointer,
+            pointerState.HasUiHit,
+            pointerState.UiHit,
+            clusterBackPressed,
+            ref _uiPointerState,
+            MXInkPointerId);
 
-        if (clusterBackPressed && !_clusterBackWasPressed && _drawerItemSelection != null)
+        var drawerItemUnderRay = false;
+        if (!pointerState.HasUiHit
+            && pointerState.HoveredShape == null
+            && pointerState.HoveredGizmoPart == null
+            && IsSelectionMode())
         {
-            _drawerItemSelection.TryConfirmSpawnSelected();
+            drawerItemUnderRay = TrySelectDrawerItemUnderRay();
+        }
+
+        if (clusterBackPressed && !_clusterBackWasPressed && !uiHandled)
+        {
+            if (pointerState.HoveredShape != null)
+            {
+                AssetSelectionManager.Instance?.SelectAsset(pointerState.HoveredShape);
+            }
+            else if (pointerState.HoveredGizmoPart != null)
+            {
+                // Gizmo hover without a successful drag should not deselect the current object.
+            }
+            else if (drawerItemUnderRay && _drawerItemSelection != null)
+            {
+                _drawerItemSelection.TryConfirmSpawnSelected();
+            }
+            else
+            {
+                AssetSelectionManager.Instance?.ClearSelection();
+            }
         }
 
         _clusterBackWasPressed = clusterBackPressed;
     }
 
-    private bool CanUseSelectionRay()
+    private bool HandleGizmoDrag(StylusPointerState pointerState, bool rearButtonPressed)
     {
-        return IsSelectionMode()
-               && (!_hideWhenStylusInactive || _stylusHandler == null || _stylusHandler.IsTrackingStylus);
+        if (_stylusGizmoDragging)
+        {
+            if (rearButtonPressed && pointerState.IsUsable)
+            {
+                var dragCamera = ResolveTransformGizmoCamera();
+                if (_transformGizmo != null && dragCamera != null)
+                {
+                    _transformGizmo.Drag(new Ray(pointerState.Origin, pointerState.Direction), dragCamera);
+                }
+                else
+                {
+                    EndGizmoDrag();
+                }
+            }
+            else
+            {
+                EndGizmoDrag();
+            }
+
+            return true;
+        }
+
+        if (!rearButtonPressed || _clusterBackWasPressed || !pointerState.IsUsable || pointerState.HasUiHit)
+        {
+            return false;
+        }
+
+        ResolveTransformGizmo();
+        var cam = ResolveTransformGizmoCamera();
+        if (_transformGizmo == null || cam == null)
+        {
+            return false;
+        }
+
+        var ray = new Ray(pointerState.Origin, pointerState.Direction);
+        var maxDistance = Mathf.Max(_placeableRayDistance, _drawerSelectionRayDistance, _uiRayDistance);
+        if (!_transformGizmo.TryBeginDrag(ray, maxDistance, cam))
+        {
+            return pointerState.HoveredGizmoPart != null;
+        }
+
+        _stylusGizmoDragging = true;
+        _transformGizmo.Drag(ray, cam);
+        return true;
     }
 
-    private void TrySelectDrawerItemUnderRay()
+    private void HandleFrontButtonGrab(StylusPointerState pointerState)
+    {
+        var clusterFrontPressed = _stylusHandler != null && _stylusHandler.CurrentState.cluster_front_value;
+        var sourceId = PlaceableMultiGrabCoordinator.MXInkSourceId;
+
+        if (PlaceableMultiGrabCoordinator.IsSourceGrabbing(sourceId))
+        {
+            if (clusterFrontPressed && pointerState.IsUsable)
+            {
+                PlaceableMultiGrabCoordinator.UpdateGrab(
+                    sourceId,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    0f,
+                    _minGrabDistance,
+                    Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            }
+            else
+            {
+                PlaceableMultiGrabCoordinator.EndGrab(sourceId);
+            }
+
+            _clusterFrontWasPressed = clusterFrontPressed;
+            return;
+        }
+
+        var grabTarget = ResolvePlaceableGrabTarget(pointerState);
+        if (clusterFrontPressed
+            && !_clusterFrontWasPressed
+            && pointerState.IsUsable
+            && grabTarget != null)
+        {
+            PlaceableMultiGrabCoordinator.TryBeginGrab(
+                sourceId,
+                grabTarget,
+                pointerState.Origin,
+                pointerState.Direction,
+                pointerState.HasHit ? pointerState.Hit.distance : _placeableRayDistance,
+                _minGrabDistance,
+                Mathf.Max(_minGrabDistance, _maxGrabDistance));
+
+            PlaceableMultiGrabCoordinator.UpdateGrab(
+                sourceId,
+                pointerState.Origin,
+                pointerState.Direction,
+                0f,
+                _minGrabDistance,
+                Mathf.Max(_minGrabDistance, _maxGrabDistance));
+        }
+
+        _clusterFrontWasPressed = clusterFrontPressed;
+    }
+
+    private static PlaceableAsset ResolvePlaceableGrabTarget(StylusPointerState pointerState)
+    {
+        if (pointerState.HoveredShape != null)
+        {
+            return pointerState.HoveredShape;
+        }
+
+        return pointerState.HoveredGizmoPart != null
+            ? AssetSelectionManager.Instance?.SelectedAsset
+            : null;
+    }
+
+    private bool CanUseStylusRay()
+    {
+        return !_hideWhenStylusInactive || _stylusHandler == null || _stylusHandler.IsTrackingStylus;
+    }
+
+    private bool TrySelectDrawerItemUnderRay()
     {
         if (_runtimeRayOrigin == null || _drawerItemSelection == null)
         {
-            return;
+            return false;
         }
 
         var hits = Physics.RaycastAll(
@@ -214,7 +529,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
         if (hits == null || hits.Length == 0)
         {
-            return;
+            return false;
         }
 
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
@@ -233,8 +548,58 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             }
 
             _drawerItemSelection.SelectItem(drawerItem);
-            return;
+            return true;
         }
+
+        return false;
+    }
+
+    private bool TryGetFirstRayHit(
+        Vector3 origin,
+        Vector3 direction,
+        float maxDistance,
+        out RaycastHit firstHit,
+        out PlaceableAsset hitPlaceable,
+        out GizmoHandlePart hitGizmoPart)
+    {
+        var length = Mathf.Max(0.01f, maxDistance);
+        var hits = Physics.RaycastAll(origin, direction, length, _placeableRaycastMask, QueryTriggerInteraction.Collide);
+        if (hits == null || hits.Length == 0)
+        {
+            firstHit = default;
+            hitPlaceable = null;
+            hitGizmoPart = null;
+            return false;
+        }
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        firstHit = hits[0];
+        hitPlaceable = null;
+        hitGizmoPart = null;
+
+        foreach (var hit in hits)
+        {
+            hitGizmoPart = hit.collider != null ? hit.collider.GetComponent<GizmoHandlePart>() : null;
+            if (hitGizmoPart != null)
+            {
+                firstHit = hit;
+                return true;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            hitPlaceable = hit.collider != null
+                ? hit.collider.GetComponentInParent<PlaceableAsset>()
+                : null;
+            if (hitPlaceable != null)
+            {
+                firstHit = hit;
+                return true;
+            }
+        }
+
+        return true;
     }
 
     private bool IsSelectionMode()
@@ -261,6 +626,52 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         }
 
         _drawerItemSelection = FindFirstObjectByType<XRDrawerItemSelectionManager>(FindObjectsInactive.Include);
+    }
+
+    private void ResolveTransformGizmo()
+    {
+        if (_transformGizmo != null)
+        {
+            return;
+        }
+
+        _transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>(FindObjectsInactive.Include);
+    }
+
+    private Camera ResolveTransformGizmoCamera()
+    {
+        ResolveTransformGizmo();
+        if (_transformGizmoCamera != null && _transformGizmoCamera.isActiveAndEnabled)
+        {
+            return _transformGizmoCamera;
+        }
+
+        if (Camera.main != null && Camera.main.isActiveAndEnabled)
+        {
+            return Camera.main;
+        }
+
+        var cameras = FindObjectsByType<Camera>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (var camera in cameras)
+        {
+            if (camera != null && camera.isActiveAndEnabled)
+            {
+                return camera;
+            }
+        }
+
+        return null;
+    }
+
+    private void EndGizmoDrag()
+    {
+        if (!_stylusGizmoDragging)
+        {
+            return;
+        }
+
+        _transformGizmo?.EndDrag();
+        _stylusGizmoDragging = false;
     }
 
     private static Gradient BuildGradient(Color color)
@@ -321,5 +732,18 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         }
 
         return material;
+    }
+
+    private struct StylusPointerState
+    {
+        public bool IsUsable;
+        public Vector3 Origin;
+        public Vector3 Direction;
+        public bool HasHit;
+        public RaycastHit Hit;
+        public PlaceableAsset HoveredShape;
+        public GizmoHandlePart HoveredGizmoPart;
+        public bool HasUiHit;
+        public WorldSpaceUiRayPointer.Hit UiHit;
     }
 }

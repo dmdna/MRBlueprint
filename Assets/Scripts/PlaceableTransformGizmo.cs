@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 /// <summary>
 /// Editor-style move / rotate / scale handles for the selected <see cref="PlaceableAsset"/> (mouse path).
@@ -40,12 +41,12 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
     private float _smoothedMaxExtent = 0.25f;
     private float _maxExtentVel;
 
-    private static Material CreateHandleMaterial(Color color, float alpha = 1f)
+    private static Material CreateHandleMaterial(Color color, float alpha = 0.58f)
     {
         // Unlit is reliable for small runtime primitives (no lighting / URP surface setup issues).
-        var shader = Shader.Find("Unlit/Color");
+        var shader = Shader.Find("Universal Render Pipeline/Unlit");
         if (shader == null)
-            shader = Shader.Find("Universal Render Pipeline/Unlit");
+            shader = Shader.Find("Unlit/Color");
         if (shader == null)
             shader = Shader.Find("Universal Render Pipeline/Lit");
         if (shader == null)
@@ -58,7 +59,29 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
         if (m.HasProperty("_Color"))
             m.SetColor("_Color", c);
         m.color = c;
-        m.renderQueue = alpha < 0.99f ? 3000 : 2450;
+
+        if (alpha < 0.99f)
+        {
+            m.renderQueue = 3000;
+            m.SetOverrideTag("RenderType", "Transparent");
+            if (m.HasProperty("_Surface"))
+                m.SetFloat("_Surface", 1f);
+            if (m.HasProperty("_Blend"))
+                m.SetFloat("_Blend", 0f);
+            if (m.HasProperty("_SrcBlend"))
+                m.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            if (m.HasProperty("_DstBlend"))
+                m.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            if (m.HasProperty("_ZWrite"))
+                m.SetFloat("_ZWrite", 0f);
+            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m.EnableKeyword("_ALPHABLEND_ON");
+        }
+        else
+        {
+            m.renderQueue = 2450;
+        }
+
         return m;
     }
 
@@ -241,9 +264,9 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
         var green = CreateHandleMaterial(new Color(0.35f, 0.85f, 0.35f));
         var blue = CreateHandleMaterial(new Color(0.35f, 0.5f, 0.95f));
         var yellow = CreateHandleMaterial(new Color(0.95f, 0.85f, 0.2f));
-        var cyan = CreateHandleMaterial(new Color(0.25f, 0.75f, 0.85f), 0.45f);
-        var magenta = CreateHandleMaterial(new Color(0.85f, 0.35f, 0.75f), 0.45f);
-        var lime = CreateHandleMaterial(new Color(0.55f, 0.85f, 0.35f), 0.45f);
+        var cyan = CreateHandleMaterial(new Color(0.25f, 0.75f, 0.85f), 0.32f);
+        var magenta = CreateHandleMaterial(new Color(0.85f, 0.35f, 0.75f), 0.32f);
+        var lime = CreateHandleMaterial(new Color(0.55f, 0.85f, 0.35f), 0.32f);
 
         AddMoveArrow("MoveX", Vector3.right, red, GizmoHandleKind.MoveX);
         AddMoveArrow("MoveY", Vector3.up, green, GizmoHandleKind.MoveY);

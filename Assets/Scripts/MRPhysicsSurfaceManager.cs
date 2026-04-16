@@ -311,6 +311,11 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
 
     private void AdjustFallbackFloorFromControllers()
     {
+        if (PlaceableMultiGrabCoordinator.AnyGrabActive)
+        {
+            return;
+        }
+
         var leftVertical = ReadJoystickVertical(LeftControllerCharacteristics);
         var rightVertical = ReadJoystickVertical(RightControllerCharacteristics);
         var vertical = Mathf.Abs(leftVertical) >= Mathf.Abs(rightVertical) ? leftVertical : rightVertical;

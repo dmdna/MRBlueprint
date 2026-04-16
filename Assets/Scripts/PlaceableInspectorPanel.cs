@@ -17,7 +17,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
     [SerializeField] private bool useHeadsetAnchoredCanvas;
     [SerializeField] private Transform headsetPanelAnchor;
     [SerializeField] private Camera headsetPanelCamera;
-    [SerializeField] private Vector3 headsetPanelLocalPosition = new Vector3(0.45f, 0f, 1.15f);
+    [SerializeField] private Vector3 headsetPanelLocalPosition = new Vector3(0.32f, 0f, 1.15f);
     [SerializeField] private Vector3 headsetPanelLocalEuler = Vector3.zero;
     [SerializeField] private float headsetPanelWorldScale = 0.0015f;
     [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(320f, 456f);

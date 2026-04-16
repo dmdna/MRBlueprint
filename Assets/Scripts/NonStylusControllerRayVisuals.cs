@@ -10,6 +10,9 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     [Header("References")]
     [SerializeField] private VrStylusHandler stylusHandler;
     [SerializeField] private XRContentDrawerController controlModeSource;
+    [SerializeField] private XRDrawerItemSelectionManager drawerItemSelection;
+    [SerializeField] private PlaceableTransformGizmo transformGizmo;
+    [SerializeField] private Camera transformGizmoCamera;
     [SerializeField] private Transform leftControllerRayOrigin;
     [SerializeField] private Transform rightControllerRayOrigin;
     [SerializeField] private LineRenderer lineTemplate;
@@ -23,16 +26,36 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     [SerializeField] private Vector3 localPositionOffset = Vector3.zero;
     [SerializeField] private Vector3 localEulerOffset = Vector3.zero;
     [SerializeField] private float triggerPressThreshold = 0.55f;
+    [SerializeField] private float gripPressThreshold = 0.55f;
+    [SerializeField] private float thumbstickDepthSpeed = 1.2f;
+    [SerializeField] private float thumbstickDeadzone = 0.18f;
+    [SerializeField] private float minGrabDistance = 0.25f;
+    [SerializeField] private float maxGrabDistance = 8f;
+
+    [Header("UI Pointer")]
+    [SerializeField] private bool enableWorldUiPointer = true;
+    [SerializeField] private string uiCanvasName = "PlaceableInspectorCanvas";
+    [SerializeField] private float uiRayDistance = 8f;
 
     [Header("Fallback Line Style")]
     [SerializeField] private float fallbackLineWidth = 0.002f;
     [SerializeField] private Color fallbackLineColor = Color.white;
 
+    private const int LeftPointerId = -12001;
+    private const int RightPointerId = -12002;
+
     private ControllerRayState _leftRay;
     private ControllerRayState _rightRay;
+    private WorldSpaceUiRayPointer.State _leftUiPointer;
+    private WorldSpaceUiRayPointer.State _rightUiPointer;
     private Material _runtimeMaterial;
     private bool _leftTriggerWasPressed;
     private bool _rightTriggerWasPressed;
+    private bool _leftGripWasPressed;
+    private bool _rightGripWasPressed;
+    private int _activeGizmoDragSourceId;
+
+    public static bool AnyControllerGrabActive => PlaceableMultiGrabCoordinator.AnyGrabActive;
 
     private void Awake()
     {
@@ -46,26 +69,37 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         ResolveReferences();
         EnsureRay(ref _leftRay, "LeftControllerRayVisual");
         EnsureRay(ref _rightRay, "RightControllerRayVisual");
-        var leftHoveredShape = UpdateRay(_leftRay, leftControllerRayOrigin, false);
-        var rightHoveredShape = UpdateRay(_rightRay, rightControllerRayOrigin, true);
-        HandleTriggerSelection(false, leftHoveredShape, ref _leftTriggerWasPressed);
-        HandleTriggerSelection(true, rightHoveredShape, ref _rightTriggerWasPressed);
+        var leftPointer = UpdateRay(_leftRay, leftControllerRayOrigin, false);
+        var rightPointer = UpdateRay(_rightRay, rightControllerRayOrigin, true);
+        HandleGripGrab(false, leftPointer, _leftRay, ref _leftGripWasPressed);
+        HandleGripGrab(true, rightPointer, _rightRay, ref _rightGripWasPressed);
+        HandleTriggerSelection(false, leftPointer, ref _leftUiPointer, ref _leftTriggerWasPressed);
+        HandleTriggerSelection(true, rightPointer, ref _rightUiPointer, ref _rightTriggerWasPressed);
     }
 
     private void OnDestroy()
     {
+        EndControllerGrabs();
+        EndGizmoDrag();
+
         if (_runtimeMaterial != null)
         {
             Destroy(_runtimeMaterial);
         }
     }
 
-    private PlaceableAsset UpdateRay(ControllerRayState rayState, Transform rayOrigin, bool isRightHand)
+    private void OnDisable()
+    {
+        EndControllerGrabs();
+        EndGizmoDrag();
+    }
+
+    private RayPointerState UpdateRay(ControllerRayState rayState, Transform rayOrigin, bool isRightHand)
     {
         if (rayState.Line == null || rayOrigin == null || !ShouldUseControllerHand(isRightHand))
         {
             SetVisible(rayState, false);
-            return null;
+            return default;
         }
 
         var origin = rayOrigin.TransformPoint(localPositionOffset);
@@ -73,32 +107,88 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         if (direction.sqrMagnitude < 0.0001f)
         {
             SetVisible(rayState, false);
-            return null;
+            return default;
         }
 
         direction.Normalize();
+        var maxRayDistance = ResolveModeRayDistance();
+        var pointerState = new RayPointerState
+        {
+            IsUsable = true,
+            Origin = origin,
+            Direction = direction
+        };
+
+        if (WorldSpaceUiRayPointer.TryGetHit(
+                enableWorldUiPointer,
+                uiCanvasName,
+                origin,
+                direction,
+                Mathf.Max(maxRayDistance, uiRayDistance),
+                out var uiHit))
+        {
+            SetLine(rayState, origin, uiHit.WorldPoint);
+            pointerState.HasUiHit = true;
+            pointerState.UiHit = uiHit;
+            pointerState.RayVisible = true;
+            return pointerState;
+        }
+
         var mode = ResolveControlMode();
         if (mode == XRControlMode.Selection)
         {
-            if (TryGetFirstRayHit(origin, direction, selectionRayLength, out var hit, out var hitPlaceable))
+            if (TryGetFirstRayHit(
+                    origin,
+                    direction,
+                    selectionRayLength,
+                    out var hit,
+                    out var hitPlaceable,
+                    out var hitDrawerItem,
+                    out var hitGizmoPart))
             {
                 SetLine(rayState, origin, hit.point);
-                return hitPlaceable;
+                pointerState.HasHit = true;
+                pointerState.Hit = hit;
+                pointerState.HoveredShape = hitPlaceable;
+                pointerState.HoveredDrawerItem = hitDrawerItem;
+                pointerState.HoveredGizmoPart = hitGizmoPart;
+                pointerState.RayVisible = true;
+
+                if (hitDrawerItem != null && hitGizmoPart == null)
+                {
+                    ResolveDrawerItemSelection();
+                    drawerItemSelection?.SelectItem(hitDrawerItem);
+                }
+
+                return pointerState;
             }
 
             SetLine(rayState, origin, origin + direction * Mathf.Max(0.01f, selectionRayLength));
-            return null;
+            pointerState.RayVisible = true;
+            return pointerState;
         }
 
-        if (TryGetFirstRayHit(origin, direction, drawingRayLength, out var drawingHit, out var drawingPlaceable)
-            && drawingPlaceable != null)
+        if (TryGetFirstRayHit(
+                origin,
+                direction,
+                drawingRayLength,
+                out var drawingHit,
+                out var drawingPlaceable,
+                out _,
+                out var drawingGizmoPart)
+            && (drawingPlaceable != null || drawingGizmoPart != null))
         {
             SetLine(rayState, origin, drawingHit.point);
-            return drawingPlaceable;
+            pointerState.HasHit = true;
+            pointerState.Hit = drawingHit;
+            pointerState.HoveredShape = drawingPlaceable;
+            pointerState.HoveredGizmoPart = drawingGizmoPart;
+            pointerState.RayVisible = true;
+            return pointerState;
         }
 
         SetVisible(rayState, false);
-        return null;
+        return pointerState;
     }
 
     private bool TryGetFirstRayHit(
@@ -106,7 +196,9 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         Vector3 direction,
         float maxDistance,
         out RaycastHit firstHit,
-        out PlaceableAsset hitPlaceable)
+        out PlaceableAsset hitPlaceable,
+        out XRDrawerItem hitDrawerItem,
+        out GizmoHandlePart hitGizmoPart)
     {
         var length = Mathf.Max(0.01f, maxDistance);
         var hits = Physics.RaycastAll(origin, direction, length, raycastMask, QueryTriggerInteraction.Collide);
@@ -114,15 +206,60 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         {
             firstHit = default;
             hitPlaceable = null;
+            hitDrawerItem = null;
+            hitGizmoPart = null;
             return false;
         }
 
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
         firstHit = hits[0];
-        hitPlaceable = firstHit.collider != null
-            ? firstHit.collider.GetComponentInParent<PlaceableAsset>()
-            : null;
+        hitPlaceable = null;
+        hitDrawerItem = null;
+        hitGizmoPart = null;
+
+        foreach (var hit in hits)
+        {
+            hitGizmoPart = hit.collider != null ? hit.collider.GetComponent<GizmoHandlePart>() : null;
+            if (hitGizmoPart != null)
+            {
+                firstHit = hit;
+                return true;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            hitDrawerItem = ResolveDrawerItem(hit.collider);
+            if (hitDrawerItem != null)
+            {
+                firstHit = hit;
+                return true;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            hitPlaceable = hit.collider != null
+                ? hit.collider.GetComponentInParent<PlaceableAsset>()
+                : null;
+            if (hitPlaceable != null)
+            {
+                firstHit = hit;
+                return true;
+            }
+        }
+
         return true;
+    }
+
+    private static XRDrawerItem ResolveDrawerItem(Collider collider)
+    {
+        if (collider == null || collider.GetComponent<DrawerTilePickTarget>() == null)
+        {
+            return null;
+        }
+
+        return collider.GetComponentInParent<XRDrawerItem>();
     }
 
     private bool ShouldUseControllerHand(bool isRightHand)
@@ -160,14 +297,55 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         return !device.TryGetFeatureValue(XRCommonUsages.isTracked, out var isTracked) || isTracked;
     }
 
-    private void HandleTriggerSelection(bool isRightHand, PlaceableAsset hoveredShape, ref bool triggerWasPressed)
+    private void HandleTriggerSelection(
+        bool isRightHand,
+        RayPointerState pointerState,
+        ref WorldSpaceUiRayPointer.State uiPointerState,
+        ref bool triggerWasPressed)
     {
+        var sourceId = ResolveControllerSourceId(isRightHand);
+        if (PlaceableMultiGrabCoordinator.IsSourceGrabbing(sourceId))
+        {
+            triggerWasPressed = ReadTriggerPressed(isRightHand);
+            return;
+        }
+
         var triggerPressed = ShouldUseControllerHand(isRightHand) && ReadTriggerPressed(isRightHand);
+        if (HandleGizmoDrag(sourceId, pointerState, triggerPressed, ref triggerWasPressed))
+        {
+            return;
+        }
+
+        if (WorldSpaceUiRayPointer.Handle(
+                enableWorldUiPointer,
+                pointerState.HasUiHit,
+                pointerState.UiHit,
+                triggerPressed,
+                ref uiPointerState,
+                isRightHand ? RightPointerId : LeftPointerId))
+        {
+            triggerWasPressed = triggerPressed;
+            return;
+        }
+
         if (triggerPressed && !triggerWasPressed)
         {
-            if (hoveredShape != null)
+            if (pointerState.HoveredDrawerItem != null)
             {
-                AssetSelectionManager.Instance?.SelectAsset(hoveredShape);
+                ResolveDrawerItemSelection();
+                if (drawerItemSelection != null)
+                {
+                    drawerItemSelection.SelectItem(pointerState.HoveredDrawerItem);
+                    drawerItemSelection.TryConfirmSpawnSelected();
+                }
+            }
+            else if (pointerState.HoveredGizmoPart != null)
+            {
+                // Gizmo hover without a successful drag should not deselect the current object.
+            }
+            else if (pointerState.HoveredShape != null)
+            {
+                AssetSelectionManager.Instance?.SelectAsset(pointerState.HoveredShape);
             }
             else
             {
@@ -176,6 +354,67 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         triggerWasPressed = triggerPressed;
+    }
+
+    private bool HandleGizmoDrag(
+        int sourceId,
+        RayPointerState pointerState,
+        bool triggerPressed,
+        ref bool triggerWasPressed)
+    {
+        if (_activeGizmoDragSourceId != 0 && _activeGizmoDragSourceId != sourceId)
+        {
+            triggerWasPressed = triggerPressed;
+            return true;
+        }
+
+        if (_activeGizmoDragSourceId == sourceId)
+        {
+            if (triggerPressed && pointerState.IsUsable)
+            {
+                var cam = ResolveTransformGizmoCamera();
+                if (transformGizmo != null && cam != null)
+                {
+                    transformGizmo.Drag(new Ray(pointerState.Origin, pointerState.Direction), cam);
+                }
+                else
+                {
+                    EndGizmoDrag();
+                }
+            }
+            else
+            {
+                EndGizmoDrag();
+            }
+
+            triggerWasPressed = triggerPressed;
+            return true;
+        }
+
+        if (!triggerPressed || triggerWasPressed || !pointerState.IsUsable || pointerState.HasUiHit)
+        {
+            return false;
+        }
+
+        ResolveTransformGizmo();
+        var gizmo = transformGizmo;
+        var gizmoCamera = ResolveTransformGizmoCamera();
+        if (gizmo == null || gizmoCamera == null)
+        {
+            return false;
+        }
+
+        var ray = new Ray(pointerState.Origin, pointerState.Direction);
+        var maxDistance = Mathf.Max(selectionRayLength, drawingRayLength, uiRayDistance);
+        if (!gizmo.TryBeginDrag(ray, maxDistance, gizmoCamera))
+        {
+            return pointerState.HoveredGizmoPart != null;
+        }
+
+        _activeGizmoDragSourceId = sourceId;
+        gizmo.Drag(ray, gizmoCamera);
+        triggerWasPressed = triggerPressed;
+        return true;
     }
 
     private bool ReadTriggerPressed(bool isRightHand)
@@ -196,10 +435,142 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                && triggerValue >= triggerPressThreshold;
     }
 
+    private void HandleGripGrab(
+        bool isRightHand,
+        RayPointerState pointerState,
+        ControllerRayState rayState,
+        ref bool gripWasPressed)
+    {
+        var sourceId = ResolveControllerSourceId(isRightHand);
+        var gripPressed = pointerState.IsUsable && ReadGripPressed(isRightHand);
+
+        if (PlaceableMultiGrabCoordinator.IsSourceGrabbing(sourceId))
+        {
+            if (gripPressed)
+            {
+                UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+            }
+            else
+            {
+                PlaceableMultiGrabCoordinator.EndGrab(sourceId);
+            }
+
+            gripWasPressed = gripPressed;
+            return;
+        }
+
+        var grabTarget = ResolvePlaceableGrabTarget(pointerState);
+        if (gripPressed && !gripWasPressed && grabTarget != null)
+        {
+            PlaceableMultiGrabCoordinator.TryBeginGrab(
+                sourceId,
+                grabTarget,
+                pointerState.Origin,
+                pointerState.Direction,
+                pointerState.HasHit ? pointerState.Hit.distance : selectionRayLength,
+                minGrabDistance,
+                Mathf.Max(minGrabDistance, maxGrabDistance));
+            UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+        }
+
+        gripWasPressed = gripPressed;
+    }
+
+    private static PlaceableAsset ResolvePlaceableGrabTarget(RayPointerState pointerState)
+    {
+        if (pointerState.HoveredShape != null)
+        {
+            return pointerState.HoveredShape;
+        }
+
+        return pointerState.HoveredGizmoPart != null
+            ? AssetSelectionManager.Instance?.SelectedAsset
+            : null;
+    }
+
+    private bool ReadGripPressed(bool isRightHand)
+    {
+        var device = XRInputDevices.GetDeviceAtXRNode(isRightHand ? XRNode.RightHand : XRNode.LeftHand);
+        if (!device.isValid || IsLogitechStylus(device))
+        {
+            return false;
+        }
+
+        if (device.TryGetFeatureValue(XRCommonUsages.gripButton, out var gripButtonPressed)
+            && gripButtonPressed)
+        {
+            return true;
+        }
+
+        return device.TryGetFeatureValue(XRCommonUsages.grip, out var gripValue)
+               && gripValue >= gripPressThreshold;
+    }
+
+    private float ReadThumbstickY(bool isRightHand)
+    {
+        var device = XRInputDevices.GetDeviceAtXRNode(isRightHand ? XRNode.RightHand : XRNode.LeftHand);
+        if (!device.isValid || IsLogitechStylus(device))
+        {
+            return 0f;
+        }
+
+        if (!device.TryGetFeatureValue(XRCommonUsages.primary2DAxis, out var axis))
+        {
+            return 0f;
+        }
+
+        return Mathf.Abs(axis.y) >= thumbstickDeadzone ? axis.y : 0f;
+    }
+
+    private void UpdateGrab(
+        int sourceId,
+        RayPointerState pointerState,
+        ControllerRayState rayState,
+        bool isRightHand)
+    {
+        if (!pointerState.IsUsable)
+        {
+            PlaceableMultiGrabCoordinator.EndGrab(sourceId);
+            return;
+        }
+
+        var thumbstickY = ReadThumbstickY(isRightHand);
+        PlaceableMultiGrabCoordinator.UpdateGrab(
+            sourceId,
+            pointerState.Origin,
+            pointerState.Direction,
+            thumbstickY * thumbstickDepthSpeed * Time.deltaTime,
+            minGrabDistance,
+            Mathf.Max(minGrabDistance, maxGrabDistance));
+
+        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(sourceId, out var grabPoint))
+        {
+            SetLine(rayState, pointerState.Origin, grabPoint);
+        }
+    }
+
+    private static int ResolveControllerSourceId(bool isRightHand)
+    {
+        return isRightHand
+            ? PlaceableMultiGrabCoordinator.RightControllerSourceId
+            : PlaceableMultiGrabCoordinator.LeftControllerSourceId;
+    }
+
+    private static void EndControllerGrabs()
+    {
+        PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.LeftControllerSourceId);
+        PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.RightControllerSourceId);
+    }
+
     private XRControlMode ResolveControlMode()
     {
         ResolveControlModeSource();
         return controlModeSource != null ? controlModeSource.CurrentMode : XRControlMode.Drawing;
+    }
+
+    private float ResolveModeRayDistance()
+    {
+        return ResolveControlMode() == XRControlMode.Selection ? selectionRayLength : drawingRayLength;
     }
 
     private void SetLine(ControllerRayState rayState, Vector3 origin, Vector3 endPoint)
@@ -304,6 +675,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private void ResolveReferences()
     {
         ResolveControlModeSource();
+        ResolveDrawerItemSelection();
+        ResolveTransformGizmo();
 
         if (stylusHandler == null)
         {
@@ -317,6 +690,58 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         {
             controlModeSource = FindFirstObjectByType<XRContentDrawerController>(FindObjectsInactive.Include);
         }
+    }
+
+    private void ResolveDrawerItemSelection()
+    {
+        if (drawerItemSelection == null)
+        {
+            drawerItemSelection = FindFirstObjectByType<XRDrawerItemSelectionManager>(FindObjectsInactive.Include);
+        }
+    }
+
+    private void ResolveTransformGizmo()
+    {
+        if (transformGizmo == null)
+        {
+            transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>(FindObjectsInactive.Include);
+        }
+    }
+
+    private Camera ResolveTransformGizmoCamera()
+    {
+        ResolveTransformGizmo();
+        if (transformGizmoCamera != null && transformGizmoCamera.isActiveAndEnabled)
+        {
+            return transformGizmoCamera;
+        }
+
+        if (Camera.main != null && Camera.main.isActiveAndEnabled)
+        {
+            return Camera.main;
+        }
+
+        var cameras = FindObjectsByType<Camera>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (var camera in cameras)
+        {
+            if (camera != null && camera.isActiveAndEnabled)
+            {
+                return camera;
+            }
+        }
+
+        return null;
+    }
+
+    private void EndGizmoDrag()
+    {
+        if (_activeGizmoDragSourceId == 0)
+        {
+            return;
+        }
+
+        transformGizmo?.EndDrag();
+        _activeGizmoDragSourceId = 0;
     }
 
     private static bool IsLogitechStylus(XRInputDevice device)
@@ -336,5 +761,20 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private struct ControllerRayState
     {
         public LineRenderer Line;
+    }
+
+    private struct RayPointerState
+    {
+        public bool IsUsable;
+        public bool RayVisible;
+        public Vector3 Origin;
+        public Vector3 Direction;
+        public bool HasHit;
+        public RaycastHit Hit;
+        public PlaceableAsset HoveredShape;
+        public XRDrawerItem HoveredDrawerItem;
+        public GizmoHandlePart HoveredGizmoPart;
+        public bool HasUiHit;
+        public WorldSpaceUiRayPointer.Hit UiHit;
     }
 }

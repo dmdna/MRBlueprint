@@ -264,9 +264,11 @@ public class LineDrawing : MonoBehaviour
             _isDrawing = false;
         }
 
-        //Undo by double tapping or clicking on cluster_back button on stylus
-        if (_stylusHandler.CurrentState.cluster_back_double_tap_value ||
-        _stylusHandler.CurrentState.cluster_back_value)
+        // Undo by double tapping or clicking on cluster_back button on stylus.
+        // The rear button is routed to placeable/UI selection while the MX Ink ray has a target.
+        if (!MXInkRayInteractorBinder.RearButtonSelectionTargetActive
+            && (_stylusHandler.CurrentState.cluster_back_double_tap_value
+                || _stylusHandler.CurrentState.cluster_back_value))
         {
             if (_lines.Count > 0 && !_doubleTapDetected)
             {
@@ -301,6 +303,20 @@ public class LineDrawing : MonoBehaviour
         else
         {
             _doubleTapDetected = false;
+        }
+
+        var mxShapeGrabOwnsFrontButton =
+            MXInkRayInteractorBinder.FrontButtonShapeGrabTargetActive
+            || PlaceableMultiGrabCoordinator.IsSourceGrabbing(PlaceableMultiGrabCoordinator.MXInkSourceId);
+        if (mxShapeGrabOwnsFrontButton && _stylusHandler.CurrentState.cluster_front_value)
+        {
+            if (_highlightedLine != null)
+            {
+                UnhighlightLine(_highlightedLine, false);
+            }
+
+            _movingLine = false;
+            return;
         }
 
         // Look for closest Line
