@@ -32,8 +32,16 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private Slider _massSlider;
     private Slider _scaleSlider;
     private Slider _valueSlider;
+    private Slider _drawingSpringStiffnessSlider;
+    private Slider _drawingHingeTorqueSlider;
+    private Slider _drawingImpulseForceSlider;
     private Toggle _gravityToggle;
+    private Toggle _drawingImpulseInstantToggle;
     private HueSaturationWheelControl _hueWheel;
+    private GameObject _drawingSpringStiffnessRow;
+    private GameObject _drawingHingeTorqueRow;
+    private GameObject _drawingImpulseForceRow;
+    private GameObject _drawingImpulseInstantRow;
 
     private float _h;
     private float _s;
@@ -135,6 +143,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _drawingTitleLabel.text = string.IsNullOrEmpty(_drawingTarget.DisplayName)
             ? "Drawing"
             : _drawingTarget.DisplayName;
+
+        RefreshDrawingControls();
     }
 
     private void EnsureEventSystem()
@@ -183,36 +193,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _valueSlider = CreateLabeledSlider(_panelRoot.transform, "Brightness", ref y, rowH, gap, OnBrightnessChanged);
 
         y -= gap;
-        var gravRow = new GameObject("GravityRow");
-        gravRow.transform.SetParent(_panelRoot.transform, false);
-        var gravRt = gravRow.AddComponent<RectTransform>();
-        gravRt.anchorMin = new Vector2(0f, 1f);
-        gravRt.anchorMax = new Vector2(1f, 1f);
-        gravRt.pivot = new Vector2(0.5f, 1f);
-        gravRt.anchoredPosition = new Vector2(0f, y);
-        gravRt.sizeDelta = new Vector2(-20f, rowH);
-
-        var gravText = CreateText(gravRow.transform, "Gravity", "Gravity", 14, TextAnchor.MiddleLeft);
-        var gravTextRt = gravText.GetComponent<RectTransform>();
-        gravTextRt.anchorMin = new Vector2(0f, 0f);
-        gravTextRt.anchorMax = new Vector2(0.55f, 1f);
-        gravTextRt.offsetMin = Vector2.zero;
-        gravTextRt.offsetMax = Vector2.zero;
-
-        var toggleGo = new GameObject("GravityToggle");
-        toggleGo.transform.SetParent(gravRow.transform, false);
-        var toggleRt = toggleGo.AddComponent<RectTransform>();
-        toggleRt.anchorMin = new Vector2(0.6f, 0.5f);
-        toggleRt.anchorMax = new Vector2(0.6f, 0.5f);
-        toggleRt.sizeDelta = new Vector2(28f, 28f);
-        toggleRt.anchoredPosition = Vector2.zero;
-        var toggleBg = toggleGo.AddComponent<Image>();
-        toggleBg.color = new Color(0.25f, 0.25f, 0.28f, 1f);
-        _gravityToggle = toggleGo.AddComponent<Toggle>();
-        _gravityToggle.targetGraphic = toggleBg;
-        _gravityToggle.graphic = CreateToggleGraphic(toggleGo.transform);
-        _gravityToggle.onValueChanged.AddListener(OnGravityChanged);
-        y -= rowH + gap;
+        _gravityToggle = CreateLabeledToggle(_panelRoot.transform, "Gravity", ref y, rowH, gap, OnGravityChanged);
 
         CreateButton(_panelRoot.transform, "Delete", ref y, rowH + 6, gap, OnDeleteClicked);
 
@@ -231,10 +212,25 @@ public class PlaceableInspectorPanel : MonoBehaviour
         rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(1f, 1f);
         rt.anchoredPosition = new Vector2(-12f, -12f);
-        rt.sizeDelta = new Vector2(280f, 96f);
+        rt.sizeDelta = new Vector2(280f, 132f);
 
         float y = -12f;
+        const float rowH = 22f;
+        const float gap = 6f;
         _drawingTitleLabel = CreateLabel(_drawingPanelRoot.transform, "DrawingTitle", "Drawing", 18, ref y, 28f);
+        _drawingSpringStiffnessSlider = CreateLabeledSlider(
+            _drawingPanelRoot.transform, "Stiffness", ref y, rowH, gap, OnDrawingSpringStiffnessChanged,
+            out _drawingSpringStiffnessRow);
+        _drawingHingeTorqueSlider = CreateLabeledSlider(
+            _drawingPanelRoot.transform, "Torque", ref y, rowH, gap, OnDrawingHingeTorqueChanged,
+            out _drawingHingeTorqueRow);
+        _drawingImpulseForceSlider = CreateLabeledSlider(
+            _drawingPanelRoot.transform, "Force", ref y, rowH, gap, OnDrawingImpulseForceChanged,
+            out _drawingImpulseForceRow);
+        _drawingImpulseInstantToggle = CreateLabeledToggle(
+            _drawingPanelRoot.transform, "Instant", ref y, rowH, gap, OnDrawingImpulseInstantChanged,
+            out _drawingImpulseInstantRow);
+        HideAllDrawingControlRows();
         _drawingPanelRoot.SetActive(false);
     }
 
@@ -402,6 +398,121 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _target.SetUseGravity(on);
     }
 
+    private void OnDrawingSpringStiffnessChanged(float value)
+    {
+        if (_suppressCallbacks || _drawingTarget == null)
+        {
+            return;
+        }
+
+        _drawingTarget.SetSpringStiffness(value);
+    }
+
+    private void OnDrawingHingeTorqueChanged(float value)
+    {
+        if (_suppressCallbacks || _drawingTarget == null)
+        {
+            return;
+        }
+
+        _drawingTarget.SetHingeTorque(value);
+    }
+
+    private void OnDrawingImpulseForceChanged(float value)
+    {
+        if (_suppressCallbacks || _drawingTarget == null)
+        {
+            return;
+        }
+
+        _drawingTarget.SetImpulseForce(value);
+    }
+
+    private void OnDrawingImpulseInstantChanged(bool instant)
+    {
+        if (_suppressCallbacks || _drawingTarget == null)
+        {
+            return;
+        }
+
+        _drawingTarget.SetImpulseInstant(instant);
+    }
+
+    private void RefreshDrawingControls()
+    {
+        if (_drawingTarget == null)
+        {
+            HideAllDrawingControlRows();
+            return;
+        }
+
+        _suppressCallbacks = true;
+        _drawingSpringStiffnessSlider.SetValueWithoutNotify(_drawingTarget.SpringStiffness);
+        _drawingHingeTorqueSlider.SetValueWithoutNotify(_drawingTarget.HingeTorque);
+        _drawingImpulseForceSlider.SetValueWithoutNotify(_drawingTarget.ImpulseForce);
+        _drawingImpulseInstantToggle.SetIsOnWithoutNotify(_drawingTarget.ImpulseInstant);
+        _suppressCallbacks = false;
+
+        switch (_drawingTarget.PhysicsIntent)
+        {
+            case PhysicsIntentType.Spring:
+                SetVisibleDrawingControlRows(_drawingSpringStiffnessRow);
+                break;
+            case PhysicsIntentType.Hinge:
+                SetVisibleDrawingControlRows(_drawingHingeTorqueRow);
+                break;
+            case PhysicsIntentType.Impulse:
+                SetVisibleDrawingControlRows(_drawingImpulseForceRow, _drawingImpulseInstantRow);
+                break;
+            default:
+                HideAllDrawingControlRows();
+                break;
+        }
+    }
+
+    private void HideAllDrawingControlRows()
+    {
+        SetDrawingRowActive(_drawingSpringStiffnessRow, false);
+        SetDrawingRowActive(_drawingHingeTorqueRow, false);
+        SetDrawingRowActive(_drawingImpulseForceRow, false);
+        SetDrawingRowActive(_drawingImpulseInstantRow, false);
+    }
+
+    private void SetVisibleDrawingControlRows(params GameObject[] rows)
+    {
+        HideAllDrawingControlRows();
+
+        const float rowH = 22f;
+        const float gap = 6f;
+        var y = -44f;
+
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var row = rows[i];
+            if (row == null)
+            {
+                continue;
+            }
+
+            SetDrawingRowActive(row, true);
+            var rt = row.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                rt.anchoredPosition = new Vector2(0f, y);
+            }
+
+            y -= rowH + gap;
+        }
+    }
+
+    private static void SetDrawingRowActive(GameObject row, bool active)
+    {
+        if (row != null)
+        {
+            row.SetActive(active);
+        }
+    }
+
     private void OnDeleteClicked()
     {
         if (_target == null)
@@ -480,7 +591,20 @@ public class PlaceableInspectorPanel : MonoBehaviour
 
     private Slider CreateLabeledSlider(Transform parent, string label, ref float y, float rowH, float gap, UnityEngine.Events.UnityAction<float> onChanged)
     {
-        var row = new GameObject(label + "Row");
+        GameObject unusedRow;
+        return CreateLabeledSlider(parent, label, ref y, rowH, gap, onChanged, out unusedRow);
+    }
+
+    private Slider CreateLabeledSlider(
+        Transform parent,
+        string label,
+        ref float y,
+        float rowH,
+        float gap,
+        UnityEngine.Events.UnityAction<float> onChanged,
+        out GameObject row)
+    {
+        row = new GameObject(label + "Row");
         row.transform.SetParent(parent, false);
         var rowRt = row.AddComponent<RectTransform>();
         rowRt.anchorMin = new Vector2(0f, 1f);
@@ -560,6 +684,61 @@ public class PlaceableInspectorPanel : MonoBehaviour
 
         y -= rowH + gap;
         return slider;
+    }
+
+    private Toggle CreateLabeledToggle(
+        Transform parent,
+        string label,
+        ref float y,
+        float rowH,
+        float gap,
+        UnityEngine.Events.UnityAction<bool> onChanged)
+    {
+        GameObject unusedRow;
+        return CreateLabeledToggle(parent, label, ref y, rowH, gap, onChanged, out unusedRow);
+    }
+
+    private Toggle CreateLabeledToggle(
+        Transform parent,
+        string label,
+        ref float y,
+        float rowH,
+        float gap,
+        UnityEngine.Events.UnityAction<bool> onChanged,
+        out GameObject row)
+    {
+        row = new GameObject(label + "Row");
+        row.transform.SetParent(parent, false);
+        var rowRt = row.AddComponent<RectTransform>();
+        rowRt.anchorMin = new Vector2(0f, 1f);
+        rowRt.anchorMax = new Vector2(1f, 1f);
+        rowRt.pivot = new Vector2(0.5f, 1f);
+        rowRt.anchoredPosition = new Vector2(0f, y);
+        rowRt.sizeDelta = new Vector2(-20f, rowH);
+
+        var labelText = CreateText(row.transform, label, label, 14, TextAnchor.MiddleLeft);
+        var labelTextRt = labelText.GetComponent<RectTransform>();
+        labelTextRt.anchorMin = new Vector2(0f, 0f);
+        labelTextRt.anchorMax = new Vector2(0.55f, 1f);
+        labelTextRt.offsetMin = Vector2.zero;
+        labelTextRt.offsetMax = Vector2.zero;
+
+        var toggleGo = new GameObject(label + "Toggle");
+        toggleGo.transform.SetParent(row.transform, false);
+        var toggleRt = toggleGo.AddComponent<RectTransform>();
+        toggleRt.anchorMin = new Vector2(0.6f, 0.5f);
+        toggleRt.anchorMax = new Vector2(0.6f, 0.5f);
+        toggleRt.sizeDelta = new Vector2(28f, 28f);
+        toggleRt.anchoredPosition = Vector2.zero;
+        var toggleBg = toggleGo.AddComponent<Image>();
+        toggleBg.color = new Color(0.25f, 0.25f, 0.28f, 1f);
+        var toggle = toggleGo.AddComponent<Toggle>();
+        toggle.targetGraphic = toggleBg;
+        toggle.graphic = CreateToggleGraphic(toggleGo.transform);
+        toggle.onValueChanged.AddListener(onChanged);
+
+        y -= rowH + gap;
+        return toggle;
     }
 
     private static Button CreateButton(Transform parent, string caption, ref float y, float height, float gap, UnityEngine.Events.UnityAction onClick)

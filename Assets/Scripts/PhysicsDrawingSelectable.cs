@@ -10,6 +10,10 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     [SerializeField] private string shapeName = "Unknown";
     [SerializeField] private Color highlightColor = Color.yellow;
     [SerializeField] private float colliderRadius = 0.025f;
+    [SerializeField, Range(0f, 1f)] private float springStiffness = 0.5f;
+    [SerializeField, Range(0f, 1f)] private float hingeTorque = 0.5f;
+    [SerializeField, Range(0f, 1f)] private float impulseForce = 0.5f;
+    [SerializeField] private bool impulseInstant;
 
     private readonly List<GameObject> _colliders = new();
     private LineRenderer _lineRenderer;
@@ -22,11 +26,22 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     public PhysicsIntentType PhysicsIntent => physicsIntent;
     public string ShapeName => shapeName;
     public bool IsSelected => _isSelected;
+    public float SpringStiffness => springStiffness;
+    public float HingeTorque => hingeTorque;
+    public float ImpulseForce => impulseForce;
+    public bool ImpulseInstant => impulseInstant;
 
     private void Awake()
     {
         ResolveReferences();
         CacheBaseColor();
+    }
+
+    private void OnValidate()
+    {
+        springStiffness = Mathf.Clamp01(springStiffness);
+        hingeTorque = Mathf.Clamp01(hingeTorque);
+        impulseForce = Mathf.Clamp01(impulseForce);
     }
 
     private void OnDestroy()
@@ -65,6 +80,26 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     {
         _isSelected = selected;
         ApplyHighlightState();
+    }
+
+    public void SetSpringStiffness(float value)
+    {
+        springStiffness = Mathf.Clamp01(value);
+    }
+
+    public void SetHingeTorque(float value)
+    {
+        hingeTorque = Mathf.Clamp01(value);
+    }
+
+    public void SetImpulseForce(float value)
+    {
+        impulseForce = Mathf.Clamp01(value);
+    }
+
+    public void SetImpulseInstant(bool instant)
+    {
+        impulseInstant = instant;
     }
 
     public void RebuildColliders()
