@@ -23,10 +23,12 @@ public class PlaceableInspectorPanel : MonoBehaviour
     [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(320f, 456f);
 
     private PlaceableAsset _target;
+    private PhysicsDrawingSelectable _drawingTarget;
     private Vector3 _scaleBasis = Vector3.one;
     private float _scaleUniformRef = 1f;
     private GameObject _canvasRoot;
     private GameObject _panelRoot;
+    private GameObject _drawingPanelRoot;
     private Slider _massSlider;
     private Slider _scaleSlider;
     private Slider _valueSlider;
@@ -37,6 +39,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private float _s;
     private float _v = 1f;
     private Text _titleLabel;
+    private Text _drawingTitleLabel;
     private bool _suppressCallbacks;
 
     private void Start()
@@ -47,7 +50,9 @@ public class PlaceableInspectorPanel : MonoBehaviour
         if (AssetSelectionManager.Instance != null)
         {
             AssetSelectionManager.Instance.OnSelectionChanged += OnSelectionChanged;
+            AssetSelectionManager.Instance.OnPhysicsDrawingSelectionChanged += OnDrawingSelectionChanged;
             OnSelectionChanged(AssetSelectionManager.Instance.SelectedAsset);
+            OnDrawingSelectionChanged(AssetSelectionManager.Instance.SelectedPhysicsDrawing);
         }
     }
 
@@ -56,6 +61,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         if (AssetSelectionManager.Instance != null)
         {
             AssetSelectionManager.Instance.OnSelectionChanged -= OnSelectionChanged;
+            AssetSelectionManager.Instance.OnPhysicsDrawingSelectionChanged -= OnDrawingSelectionChanged;
         }
 
         if (_hueWheel != null)
@@ -77,6 +83,11 @@ public class PlaceableInspectorPanel : MonoBehaviour
 
         var hasTarget = _target != null;
         _panelRoot.SetActive(hasTarget);
+        if (hasTarget && _drawingPanelRoot != null)
+        {
+            _drawingPanelRoot.SetActive(false);
+        }
+
         if (!hasTarget)
         {
             return;
@@ -99,6 +110,31 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _hueWheel?.SetThumbFromHs(_h, _s);
         _gravityToggle.SetIsOnWithoutNotify(_target.GetUseGravity());
         _suppressCallbacks = false;
+    }
+
+    private void OnDrawingSelectionChanged(PhysicsDrawingSelectable drawing)
+    {
+        _drawingTarget = drawing;
+        if (_drawingPanelRoot == null)
+        {
+            return;
+        }
+
+        var hasDrawing = _drawingTarget != null;
+        _drawingPanelRoot.SetActive(hasDrawing);
+        if (!hasDrawing)
+        {
+            return;
+        }
+
+        if (_panelRoot != null)
+        {
+            _panelRoot.SetActive(false);
+        }
+
+        _drawingTitleLabel.text = string.IsNullOrEmpty(_drawingTarget.DisplayName)
+            ? "Drawing"
+            : _drawingTarget.DisplayName;
     }
 
     private void EnsureEventSystem()
@@ -181,6 +217,25 @@ public class PlaceableInspectorPanel : MonoBehaviour
         CreateButton(_panelRoot.transform, "Delete", ref y, rowH + 6, gap, OnDeleteClicked);
 
         _panelRoot.SetActive(false);
+        BuildDrawingUi(canvasGo.transform);
+    }
+
+    private void BuildDrawingUi(Transform canvasTransform)
+    {
+        _drawingPanelRoot = new GameObject("DrawingPanel");
+        _drawingPanelRoot.transform.SetParent(canvasTransform, false);
+        var bg = _drawingPanelRoot.AddComponent<Image>();
+        bg.color = new Color(0.08f, 0.08f, 0.1f, 0.92f);
+        var rt = _drawingPanelRoot.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(1f, 1f);
+        rt.anchoredPosition = new Vector2(-12f, -12f);
+        rt.sizeDelta = new Vector2(280f, 96f);
+
+        float y = -12f;
+        _drawingTitleLabel = CreateLabel(_drawingPanelRoot.transform, "DrawingTitle", "Drawing", 18, ref y, 28f);
+        _drawingPanelRoot.SetActive(false);
     }
 
     private void ConfigureCanvas(GameObject canvasGo, Canvas canvas)

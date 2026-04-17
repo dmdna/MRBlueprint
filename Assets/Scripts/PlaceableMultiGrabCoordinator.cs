@@ -80,8 +80,7 @@ public static class PlaceableMultiGrabCoordinator
 
         CaptureMultiGrabIfNeeded(placeable);
 
-        if (AssetSelectionManager.Instance != null
-            && AssetSelectionManager.Instance.SelectedAsset != null)
+        if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.HasSelection)
         {
             AssetSelectionManager.Instance.ClearSelection();
         }

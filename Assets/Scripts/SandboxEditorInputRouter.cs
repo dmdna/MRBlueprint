@@ -31,6 +31,7 @@ public class SandboxEditorInputRouter : MonoBehaviour
 
     private PlaceableAsset _placeablePressCandidate;
     private Rigidbody _placeablePressRigidbody;
+    private PhysicsDrawingSelectable _drawingPressCandidate;
     private Vector2 _placeablePressScreen;
     private bool _placeableDragging;
 
@@ -92,9 +93,15 @@ public class SandboxEditorInputRouter : MonoBehaviour
                 && _placeablePressCandidate != null
                 && AssetSelectionManager.Instance != null)
                 AssetSelectionManager.Instance.SelectAsset(_placeablePressCandidate);
+            else if (!gizmoWasDragging
+                     && !_placeableDragging
+                     && _drawingPressCandidate != null
+                     && AssetSelectionManager.Instance != null)
+                AssetSelectionManager.Instance.SelectPhysicsDrawing(_drawingPressCandidate);
 
             _placeablePressCandidate = null;
             _placeablePressRigidbody = null;
+            _drawingPressCandidate = null;
             _placeableDragging = false;
             _placeableDragPlaneReady = false;
         }
@@ -148,6 +155,7 @@ public class SandboxEditorInputRouter : MonoBehaviour
         {
             _placeablePressCandidate = null;
             _placeablePressRigidbody = null;
+            _drawingPressCandidate = null;
             if (AssetSelectionManager.Instance != null)
                 AssetSelectionManager.Instance.ClearSelection();
             return;
@@ -165,7 +173,25 @@ public class SandboxEditorInputRouter : MonoBehaviour
             {
                 _placeablePressCandidate = null;
                 _placeablePressRigidbody = null;
+                _drawingPressCandidate = null;
                 drawerItemSelection.SelectItem(drawerItem);
+                return;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            if (hit.collider.GetComponent<GizmoHandlePart>() != null)
+                continue;
+
+            var drawing = hit.collider.GetComponentInParent<PhysicsDrawingSelectable>();
+            if (drawing != null)
+            {
+                _placeablePressCandidate = null;
+                _placeablePressRigidbody = null;
+                _drawingPressCandidate = drawing;
+                _placeableDragging = false;
+                _placeableDragPlaneReady = false;
                 return;
             }
         }
@@ -180,6 +206,7 @@ public class SandboxEditorInputRouter : MonoBehaviour
             {
                 _placeablePressCandidate = placeable;
                 _placeablePressRigidbody = placeable.Rigidbody;
+                _drawingPressCandidate = null;
                 _placeablePressScreen = screenPos;
                 _placeableDragging = false;
                 _placeableDragPlaneReady = false;
@@ -189,6 +216,7 @@ public class SandboxEditorInputRouter : MonoBehaviour
 
         _placeablePressCandidate = null;
         _placeablePressRigidbody = null;
+        _drawingPressCandidate = null;
         if (AssetSelectionManager.Instance != null)
             AssetSelectionManager.Instance.ClearSelection();
     }

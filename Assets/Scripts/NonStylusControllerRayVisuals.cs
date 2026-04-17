@@ -144,7 +144,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                     out var hit,
                     out var hitPlaceable,
                     out var hitDrawerItem,
-                    out var hitGizmoPart))
+                    out var hitGizmoPart,
+                    out var hitDrawing))
             {
                 SetLine(rayState, origin, hit.point);
                 pointerState.HasHit = true;
@@ -152,6 +153,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 pointerState.HoveredShape = hitPlaceable;
                 pointerState.HoveredDrawerItem = hitDrawerItem;
                 pointerState.HoveredGizmoPart = hitGizmoPart;
+                pointerState.HoveredDrawing = hitDrawing;
                 pointerState.RayVisible = true;
 
                 if (hitDrawerItem != null && hitGizmoPart == null)
@@ -175,14 +177,16 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 out var drawingHit,
                 out var drawingPlaceable,
                 out _,
-                out var drawingGizmoPart)
-            && (drawingPlaceable != null || drawingGizmoPart != null))
+                out var drawingGizmoPart,
+                out var drawingSelectable)
+            && (drawingPlaceable != null || drawingGizmoPart != null || drawingSelectable != null))
         {
             SetLine(rayState, origin, drawingHit.point);
             pointerState.HasHit = true;
             pointerState.Hit = drawingHit;
             pointerState.HoveredShape = drawingPlaceable;
             pointerState.HoveredGizmoPart = drawingGizmoPart;
+            pointerState.HoveredDrawing = drawingSelectable;
             pointerState.RayVisible = true;
             return pointerState;
         }
@@ -198,7 +202,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         out RaycastHit firstHit,
         out PlaceableAsset hitPlaceable,
         out XRDrawerItem hitDrawerItem,
-        out GizmoHandlePart hitGizmoPart)
+        out GizmoHandlePart hitGizmoPart,
+        out PhysicsDrawingSelectable hitDrawing)
     {
         var length = Mathf.Max(0.01f, maxDistance);
         var hits = Physics.RaycastAll(origin, direction, length, raycastMask, QueryTriggerInteraction.Collide);
@@ -208,6 +213,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             hitPlaceable = null;
             hitDrawerItem = null;
             hitGizmoPart = null;
+            hitDrawing = null;
             return false;
         }
 
@@ -216,6 +222,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         hitPlaceable = null;
         hitDrawerItem = null;
         hitGizmoPart = null;
+        hitDrawing = null;
 
         foreach (var hit in hits)
         {
@@ -231,6 +238,18 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         {
             hitDrawerItem = ResolveDrawerItem(hit.collider);
             if (hitDrawerItem != null)
+            {
+                firstHit = hit;
+                return true;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            hitDrawing = hit.collider != null
+                ? hit.collider.GetComponentInParent<PhysicsDrawingSelectable>()
+                : null;
+            if (hitDrawing != null)
             {
                 firstHit = hit;
                 return true;
@@ -346,6 +365,10 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             else if (pointerState.HoveredShape != null)
             {
                 AssetSelectionManager.Instance?.SelectAsset(pointerState.HoveredShape);
+            }
+            else if (pointerState.HoveredDrawing != null)
+            {
+                AssetSelectionManager.Instance?.SelectPhysicsDrawing(pointerState.HoveredDrawing);
             }
             else
             {
@@ -774,6 +797,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         public PlaceableAsset HoveredShape;
         public XRDrawerItem HoveredDrawerItem;
         public GizmoHandlePart HoveredGizmoPart;
+        public PhysicsDrawingSelectable HoveredDrawing;
         public bool HasUiHit;
         public WorldSpaceUiRayPointer.Hit UiHit;
     }

@@ -150,7 +150,25 @@ public class LineDrawing : MonoBehaviour
         var widthMultiplier = GetWidthMultiplier(readout.ShapeName);
         ApplyWidthCurve(_currentLine, _currentLineWidths, readout.DisplayPoints.Count, widthMultiplier);
         UpdateArrowTipVisual(_currentLine.gameObject, readout);
+        InitializePhysicsDrawing(_currentLine.gameObject, readout);
         Debug.Log($"[LineDrawing] Snapped stroke to {readout.ShapeName} ({readout.Gesture.Confidence:0.00})");
+    }
+
+    private void InitializePhysicsDrawing(GameObject lineObject, PhysicsGestureReadoutResult readout)
+    {
+        if (lineObject == null || readout == null)
+        {
+            return;
+        }
+
+        lineObject.name = string.IsNullOrEmpty(readout.ShapeName) ? "PhysicsDrawing" : readout.ShapeName;
+        var selectable = lineObject.GetComponent<PhysicsDrawingSelectable>();
+        if (selectable == null)
+        {
+            selectable = lineObject.AddComponent<PhysicsDrawingSelectable>();
+        }
+
+        selectable.Initialize(readout, highlightColor);
     }
 
     private void ApplyWidthCurve(LineRenderer lineRenderer, IReadOnlyList<float> sourceWidths, int targetCount, float widthMultiplier = 1f)
@@ -398,27 +416,45 @@ public class LineDrawing : MonoBehaviour
     private void HighlightLine(GameObject line)
     {
         _highlightedLine = line;
-        var lineRenderer = line.GetComponent<LineRenderer>();
-        _cachedColor = lineRenderer.material.color;
-        lineRenderer.material.color = highlightColor;
-        var arrowTip = line.GetComponent<LineArrowTip>();
-        if (arrowTip != null)
+        var selectable = line.GetComponent<PhysicsDrawingSelectable>();
+        if (selectable != null)
         {
-            arrowTip.SetColor(highlightColor);
+            selectable.SetHovered(true);
         }
+        else
+        {
+            var lineRenderer = line.GetComponent<LineRenderer>();
+            _cachedColor = lineRenderer.material.color;
+            lineRenderer.material.color = highlightColor;
+            var arrowTip = line.GetComponent<LineArrowTip>();
+            if (arrowTip != null)
+            {
+                arrowTip.SetColor(highlightColor);
+            }
+        }
+
         //haptic click when highlighting a line
         ((VrStylusHandler)_stylusHandler).TriggerHapticClick();
     }
 
     private void UnhighlightLine(GameObject line, bool triggerHaptic = true)
     {
-        var lineRenderer = line.GetComponent<LineRenderer>();
-        lineRenderer.material.color = _cachedColor;
-        var arrowTip = line.GetComponent<LineArrowTip>();
-        if (arrowTip != null)
+        var selectable = line.GetComponent<PhysicsDrawingSelectable>();
+        if (selectable != null)
         {
-            arrowTip.SetColor(_cachedColor);
+            selectable.SetHovered(false);
         }
+        else
+        {
+            var lineRenderer = line.GetComponent<LineRenderer>();
+            lineRenderer.material.color = _cachedColor;
+            var arrowTip = line.GetComponent<LineArrowTip>();
+            if (arrowTip != null)
+            {
+                arrowTip.SetColor(_cachedColor);
+            }
+        }
+
         _highlightedLine = null;
         if (triggerHaptic)
         {
@@ -490,6 +526,12 @@ public class LineDrawing : MonoBehaviour
         if (arrowTip != null)
         {
             arrowTip.UpdateFromLine(lineRenderer, ArrowConeLength, ArrowConeRadius);
+        }
+
+        var selectable = _highlightedLine.GetComponent<PhysicsDrawingSelectable>();
+        if (selectable != null)
+        {
+            selectable.RebuildColliders();
         }
     }
 

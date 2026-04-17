@@ -42,6 +42,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     private bool _clusterBackWasPressed;
     private bool _clusterFrontWasPressed;
     private bool _stylusGizmoDragging;
+    private bool _rearButtonSelectionLatch;
 
     public static bool RearButtonSelectionTargetActive { get; private set; }
     public static bool FrontButtonShapeGrabTargetActive { get; private set; }
@@ -102,6 +103,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
         RearButtonSelectionTargetActive = false;
         FrontButtonShapeGrabTargetActive = false;
+        _rearButtonSelectionLatch = false;
 
         if (_runtimeMaterial != null)
         {
@@ -115,6 +117,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
         RearButtonSelectionTargetActive = false;
         FrontButtonShapeGrabTargetActive = false;
+        _rearButtonSelectionLatch = false;
     }
 
     private void EnsureRayOrigin()
@@ -202,6 +205,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         {
             RearButtonSelectionTargetActive = false;
             FrontButtonShapeGrabTargetActive = false;
+            _rearButtonSelectionLatch = false;
             return default;
         }
 
@@ -211,6 +215,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         {
             RearButtonSelectionTargetActive = false;
             FrontButtonShapeGrabTargetActive = false;
+            _rearButtonSelectionLatch = false;
             return default;
         }
 
@@ -240,18 +245,34 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                 _placeableRayDistance,
                 out var hit,
                 out var placeable,
-                out var gizmoPart))
+                out var gizmoPart,
+                out var drawing))
         {
             pointerState.HasHit = true;
             pointerState.Hit = hit;
             pointerState.HoveredShape = placeable;
             pointerState.HoveredGizmoPart = gizmoPart;
+            pointerState.HoveredDrawing = drawing;
+        }
+
+        var rearButtonPressed = _stylusHandler != null && _stylusHandler.CurrentState.cluster_back_value;
+        var selectionExists = AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.HasSelection;
+        if (!rearButtonPressed)
+        {
+            _rearButtonSelectionLatch = false;
+        }
+        else if (selectionExists)
+        {
+            _rearButtonSelectionLatch = true;
         }
 
         RearButtonSelectionTargetActive = pointerState.HasUiHit
                                           || pointerState.HoveredShape != null
                                           || pointerState.HoveredGizmoPart != null
-                                          || _stylusGizmoDragging;
+                                          || pointerState.HoveredDrawing != null
+                                          || _stylusGizmoDragging
+                                          || selectionExists
+                                          || _rearButtonSelectionLatch;
         FrontButtonShapeGrabTargetActive = ResolvePlaceableGrabTarget(pointerState) != null
                                            || PlaceableMultiGrabCoordinator.IsSourceGrabbing(
                                                PlaceableMultiGrabCoordinator.MXInkSourceId);
@@ -269,6 +290,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         var hasManualTarget = pointerState.HasUiHit
                               || pointerState.HoveredShape != null
                               || pointerState.HoveredGizmoPart != null
+                              || pointerState.HoveredDrawing != null
                               || isGrabbing
                               || _stylusGizmoDragging;
         var isVisible = stylusIsVisible && (modeIsVisible || hasManualTarget);
@@ -367,6 +389,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         if (!pointerState.HasUiHit
             && pointerState.HoveredShape == null
             && pointerState.HoveredGizmoPart == null
+            && pointerState.HoveredDrawing == null
             && IsSelectionMode())
         {
             drawerItemUnderRay = TrySelectDrawerItemUnderRay();
@@ -377,6 +400,10 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             if (pointerState.HoveredShape != null)
             {
                 AssetSelectionManager.Instance?.SelectAsset(pointerState.HoveredShape);
+            }
+            else if (pointerState.HoveredDrawing != null)
+            {
+                AssetSelectionManager.Instance?.SelectPhysicsDrawing(pointerState.HoveredDrawing);
             }
             else if (pointerState.HoveredGizmoPart != null)
             {
@@ -560,7 +587,8 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         float maxDistance,
         out RaycastHit firstHit,
         out PlaceableAsset hitPlaceable,
-        out GizmoHandlePart hitGizmoPart)
+        out GizmoHandlePart hitGizmoPart,
+        out PhysicsDrawingSelectable hitDrawing)
     {
         var length = Mathf.Max(0.01f, maxDistance);
         var hits = Physics.RaycastAll(origin, direction, length, _placeableRaycastMask, QueryTriggerInteraction.Collide);
@@ -569,6 +597,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             firstHit = default;
             hitPlaceable = null;
             hitGizmoPart = null;
+            hitDrawing = null;
             return false;
         }
 
@@ -576,11 +605,24 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         firstHit = hits[0];
         hitPlaceable = null;
         hitGizmoPart = null;
+        hitDrawing = null;
 
         foreach (var hit in hits)
         {
             hitGizmoPart = hit.collider != null ? hit.collider.GetComponent<GizmoHandlePart>() : null;
             if (hitGizmoPart != null)
+            {
+                firstHit = hit;
+                return true;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            hitDrawing = hit.collider != null
+                ? hit.collider.GetComponentInParent<PhysicsDrawingSelectable>()
+                : null;
+            if (hitDrawing != null)
             {
                 firstHit = hit;
                 return true;
@@ -743,6 +785,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         public RaycastHit Hit;
         public PlaceableAsset HoveredShape;
         public GizmoHandlePart HoveredGizmoPart;
+        public PhysicsDrawingSelectable HoveredDrawing;
         public bool HasUiHit;
         public WorldSpaceUiRayPointer.Hit UiHit;
     }
