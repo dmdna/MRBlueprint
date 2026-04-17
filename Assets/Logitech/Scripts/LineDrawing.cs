@@ -157,12 +157,13 @@ public class LineDrawing : MonoBehaviour
             return;
         }
 
-        var springStiffness = readout.PhysicsIntent == PhysicsIntentType.Spring
-            ? CalculateFinalSpringStiffness()
+        var pressureSettingValue = UsesPressureControlledSetting(readout)
+            ? CalculateFinalPressureSettingValue()
             : 0f;
 
         _currentLine.positionCount = readout.DisplayPoints.Count;
         _currentLine.SetPositions(readout.DisplayPoints.ToArray());
+        _currentLine.loop = ShouldRenderAsClosedLoop(readout);
         if (UsesFixedThickStroke(readout))
         {
             ApplyFixedWidthCurve(_currentLine, GetThickPhysicsLineWidth());
@@ -179,11 +180,11 @@ public class LineDrawing : MonoBehaviour
         }
 
         UpdateArrowTipVisual(_currentLine.gameObject, readout);
-        InitializePhysicsDrawing(_currentLine.gameObject, readout, springStiffness);
+        InitializePhysicsDrawing(_currentLine.gameObject, readout, pressureSettingValue);
         Debug.Log($"[LineDrawing] Snapped stroke to {readout.ShapeName} ({readout.Gesture.Confidence:0.00})");
     }
 
-    private void InitializePhysicsDrawing(GameObject lineObject, PhysicsGestureReadoutResult readout, float springStiffness)
+    private void InitializePhysicsDrawing(GameObject lineObject, PhysicsGestureReadoutResult readout, float pressureSettingValue)
     {
         if (lineObject == null || readout == null)
         {
@@ -201,7 +202,15 @@ public class LineDrawing : MonoBehaviour
         selectable.Initialize(readout, highlightColor, _currentColor);
         if (readout.PhysicsIntent == PhysicsIntentType.Spring)
         {
-            selectable.SetSpringStiffness(springStiffness);
+            selectable.SetSpringStiffness(pressureSettingValue);
+        }
+        else if (readout.PhysicsIntent == PhysicsIntentType.Hinge)
+        {
+            selectable.SetHingeTorque(pressureSettingValue);
+        }
+        else if (readout.PhysicsIntent == PhysicsIntentType.Impulse)
+        {
+            selectable.SetImpulseForce(pressureSettingValue);
         }
     }
 
@@ -214,7 +223,7 @@ public class LineDrawing : MonoBehaviour
         });
     }
 
-    private float CalculateFinalSpringStiffness()
+    private float CalculateFinalPressureSettingValue()
     {
         if (_currentPressureSamples.Count == 0)
         {
@@ -335,7 +344,20 @@ public class LineDrawing : MonoBehaviour
     private bool UsesFixedThickStroke(PhysicsGestureReadoutResult readout)
     {
         return readout.PhysicsIntent == PhysicsIntentType.Spring
-               || readout.PhysicsIntent == PhysicsIntentType.Impulse;
+               || readout.PhysicsIntent == PhysicsIntentType.Impulse
+               || readout.PhysicsIntent == PhysicsIntentType.Hinge;
+    }
+
+    private bool UsesPressureControlledSetting(PhysicsGestureReadoutResult readout)
+    {
+        return readout.PhysicsIntent == PhysicsIntentType.Spring
+               || readout.PhysicsIntent == PhysicsIntentType.Impulse
+               || readout.PhysicsIntent == PhysicsIntentType.Hinge;
+    }
+
+    private bool ShouldRenderAsClosedLoop(PhysicsGestureReadoutResult readout)
+    {
+        return readout.PhysicsIntent == PhysicsIntentType.Hinge;
     }
 
     private float GetThickPhysicsLineWidth()

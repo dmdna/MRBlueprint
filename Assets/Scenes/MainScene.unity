@@ -1033,6 +1033,8 @@ MonoBehaviour:
   _explicitRayOrigin: {fileID: 0}
   _controlModeSource: {fileID: 0}
   _drawerItemSelection: {fileID: 0}
+  _transformGizmo: {fileID: 0}
+  _transformGizmoCamera: {fileID: 0}
   _hideWhenStylusInactive: 1
   _hideOutsideSelectionMode: 1
   _drawerSelectionRayDistance: 8
@@ -1041,6 +1043,15 @@ MonoBehaviour:
     m_Bits: 4294967295
   _localPositionOffset: {x: 0, y: -0.2, z: 0}
   _localEulerOffset: {x: 90, y: 0, z: 0}
+  _enableWorldUiPointer: 1
+  _uiCanvasName: PlaceableInspectorCanvas
+  _uiRayDistance: 8
+  _placeableRayDistance: 8
+  _placeableRaycastMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  _minGrabDistance: 0.25
+  _maxGrabDistance: 8
 --- !u!1001 &259765908
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2527,7 +2538,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &820046593
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3045,6 +3056,78 @@ MonoBehaviour:
   fallbackFloorColor: {r: 0.25, g: 0.75, b: 1, a: 0.22}
   joystickAdjustSpeed: 0.35
   joystickDeadzone: 0.18
+--- !u!1 &990882001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 990882002}
+  - component: {fileID: 990882003}
+  m_Layer: 0
+  m_Name: NonStylusControllerRayVisuals
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &990882002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 990882001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &990882003
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 990882001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c077c3e714e2453482879bca69819de5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NonStylusControllerRayVisuals
+  stylusHandler: {fileID: 2041492266}
+  controlModeSource: {fileID: 395236580}
+  drawerItemSelection: {fileID: 0}
+  transformGizmo: {fileID: 0}
+  transformGizmoCamera: {fileID: 0}
+  leftControllerRayOrigin: {fileID: 1133742836}
+  rightControllerRayOrigin: {fileID: 409141786}
+  lineTemplate: {fileID: 181175014}
+  raycastMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  selectionRayLength: 8
+  drawingRayLength: 30
+  requireTrackedController: 1
+  showBothControllersWhenNoStylus: 1
+  localPositionOffset: {x: 0, y: 0, z: 0}
+  localEulerOffset: {x: 0, y: 0, z: 0}
+  triggerPressThreshold: 0.55
+  gripPressThreshold: 0.55
+  thumbstickDepthSpeed: 1.2
+  thumbstickDeadzone: 0.18
+  minGrabDistance: 0.25
+  maxGrabDistance: 8
+  enableWorldUiPointer: 1
+  uiCanvasName: PlaceableInspectorCanvas
+  uiRayDistance: 8
+  fallbackLineWidth: 0.002
+  fallbackLineColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1 &1107129506
 GameObject:
   m_ObjectHideFlags: 0
@@ -3157,7 +3240,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1217332958
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4197,7 +4280,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1808697050
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4983,75 +5066,6 @@ PrefabInstance:
       addedObject: {fileID: 181175012}
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 20251267c934dac4da1e6f18041047e9, type: 3}
---- !u!1 &990882001
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 990882002}
-  - component: {fileID: 990882003}
-  m_Layer: 0
-  m_Name: NonStylusControllerRayVisuals
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &990882002
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 990882001}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &990882003
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 990882001}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c077c3e714e2453482879bca69819de5, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: Assembly-CSharp::NonStylusControllerRayVisuals
-  stylusHandler: {fileID: 2041492266}
-  controlModeSource: {fileID: 395236580}
-  leftControllerRayOrigin: {fileID: 1133742836}
-  rightControllerRayOrigin: {fileID: 409141786}
-  lineTemplate: {fileID: 181175014}
-  raycastMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  selectionRayLength: 8
-  drawingRayLength: 30
-  requireTrackedController: 1
-  showBothControllersWhenNoStylus: 1
-  localPositionOffset: {x: 0, y: 0, z: 0}
-  localEulerOffset: {x: 0, y: 0, z: 0}
-  triggerPressThreshold: 0.55
-  gripPressThreshold: 0.55
-  thumbstickDepthSpeed: 1.2
-  thumbstickDeadzone: 0.18
-  minGrabDistance: 0.25
-  maxGrabDistance: 8
-  enableWorldUiPointer: 1
-  uiCanvasName: PlaceableInspectorCanvas
-  uiRayDistance: 8
-  fallbackLineWidth: 0.002
-  fallbackLineColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

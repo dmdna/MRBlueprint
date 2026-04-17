@@ -6,6 +6,9 @@ using UnityEngine.Rendering;
 [RequireComponent(typeof(LineRenderer))]
 public sealed class PhysicsDrawingSelectable : MonoBehaviour
 {
+    private const float ArrowConeLength = 0.03f;
+    private const float ArrowConeRadius = 0.009f;
+
     [SerializeField] private string displayName = "Drawing";
     [SerializeField] private PhysicsIntentType physicsIntent = PhysicsIntentType.Unknown;
     [SerializeField] private string shapeName = "Unknown";
@@ -96,7 +99,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
 
         CacheBaseColor();
-        RefreshSpringColor();
+        RefreshPhysicsColor();
         RebuildColliders();
         ApplyHighlightState();
     }
@@ -124,16 +127,99 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     public void SetHingeTorque(float value)
     {
         hingeTorque = Mathf.Clamp01(value);
+        RefreshHingeColor();
     }
 
     public void SetImpulseForce(float value)
     {
         impulseForce = Mathf.Clamp01(value);
+        RefreshImpulseColor();
     }
 
     public void SetImpulseInstant(bool instant)
     {
         impulseInstant = instant;
+    }
+
+    public Vector3 GetGrabPosition()
+    {
+        ResolveReferences();
+        if (_lineRenderer == null || _lineRenderer.positionCount == 0)
+        {
+            return transform.position;
+        }
+
+        var first = GetWorldLinePosition(0);
+        var bounds = new Bounds(first, Vector3.zero);
+        for (var i = 1; i < _lineRenderer.positionCount; i++)
+        {
+            bounds.Encapsulate(GetWorldLinePosition(i));
+        }
+
+        return bounds.center;
+    }
+
+    public void SetGrabPosition(Vector3 position)
+    {
+        TranslateLine(position - GetGrabPosition());
+    }
+
+    public void TranslateLine(Vector3 worldDelta)
+    {
+        ResolveReferences();
+        if (_lineRenderer == null
+            || _lineRenderer.positionCount == 0
+            || worldDelta.sqrMagnitude <= 0.00000001f)
+        {
+            return;
+        }
+
+        var delta = _lineRenderer.useWorldSpace
+            ? worldDelta
+            : transform.InverseTransformVector(worldDelta);
+        for (var i = 0; i < _lineRenderer.positionCount; i++)
+        {
+            _lineRenderer.SetPosition(i, _lineRenderer.GetPosition(i) + delta);
+        }
+
+        RefreshGeometryAfterLineEdit();
+    }
+
+    public Vector3[] GetWorldLinePositions()
+    {
+        ResolveReferences();
+        if (_lineRenderer == null || _lineRenderer.positionCount == 0)
+        {
+            return new Vector3[0];
+        }
+
+        var positions = new Vector3[_lineRenderer.positionCount];
+        for (var i = 0; i < positions.Length; i++)
+        {
+            positions[i] = GetWorldLinePosition(i);
+        }
+
+        return positions;
+    }
+
+    public void SetWorldLinePositions(IReadOnlyList<Vector3> worldPositions)
+    {
+        ResolveReferences();
+        if (_lineRenderer == null || worldPositions == null || worldPositions.Count == 0)
+        {
+            return;
+        }
+
+        _lineRenderer.positionCount = worldPositions.Count;
+        for (var i = 0; i < worldPositions.Count; i++)
+        {
+            var position = _lineRenderer.useWorldSpace
+                ? worldPositions[i]
+                : transform.InverseTransformPoint(worldPositions[i]);
+            _lineRenderer.SetPosition(i, position);
+        }
+
+        RefreshGeometryAfterLineEdit();
     }
 
     public void Delete()
@@ -195,6 +281,22 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
     }
 
+    private Vector3 GetWorldLinePosition(int index)
+    {
+        var position = _lineRenderer.GetPosition(index);
+        return _lineRenderer.useWorldSpace ? position : transform.TransformPoint(position);
+    }
+
+    private void RefreshGeometryAfterLineEdit()
+    {
+        if (_arrowTip != null && _lineRenderer != null)
+        {
+            _arrowTip.UpdateFromLine(_lineRenderer, ArrowConeLength, ArrowConeRadius);
+        }
+
+        RebuildColliders();
+    }
+
     private void ResolveReferences()
     {
         if (_lineRenderer == null)
@@ -239,19 +341,48 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
             return;
         }
 
-        _baseColor = EvaluateSpringColor(springStiffness);
+        _baseColor = EvaluateSettingColor(springStiffness);
         ApplyHighlightState();
     }
 
-    private Color EvaluateSpringColor(float stiffness)
+    private void RefreshHingeColor()
     {
-        stiffness = Mathf.Clamp01(stiffness);
-        if (stiffness <= 0.5f)
+        if (physicsIntent != PhysicsIntentType.Hinge)
         {
-            return Color.Lerp(springZeroStiffnessColor, springMidStiffnessColor, stiffness * 2f);
+            return;
         }
 
-        return Color.Lerp(springMidStiffnessColor, springFullStiffnessColor, (stiffness - 0.5f) * 2f);
+        _baseColor = EvaluateSettingColor(hingeTorque);
+        ApplyHighlightState();
+    }
+
+    private void RefreshImpulseColor()
+    {
+        if (physicsIntent != PhysicsIntentType.Impulse)
+        {
+            return;
+        }
+
+        _baseColor = EvaluateSettingColor(impulseForce);
+        ApplyHighlightState();
+    }
+
+    private void RefreshPhysicsColor()
+    {
+        RefreshSpringColor();
+        RefreshHingeColor();
+        RefreshImpulseColor();
+    }
+
+    private Color EvaluateSettingColor(float value)
+    {
+        value = Mathf.Clamp01(value);
+        if (value <= 0.5f)
+        {
+            return Color.Lerp(springZeroStiffnessColor, springMidStiffnessColor, value * 2f);
+        }
+
+        return Color.Lerp(springMidStiffnessColor, springFullStiffnessColor, (value - 0.5f) * 2f);
     }
 
     private void SetSelectionAuraVisible(bool visible)
@@ -341,7 +472,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         _selectionAuraRenderer.loop = _lineRenderer.loop;
         _selectionAuraRenderer.alignment = _lineRenderer.alignment;
         _selectionAuraRenderer.textureMode = _lineRenderer.textureMode;
-        _selectionAuraRenderer.numCapVertices = _arrowTip != null ? 0 : Mathf.Max(_lineRenderer.numCapVertices, 8);
+        _selectionAuraRenderer.numCapVertices = Mathf.Max(_lineRenderer.numCapVertices, 8);
         _selectionAuraRenderer.numCornerVertices = Mathf.Max(_lineRenderer.numCornerVertices, 8);
         _selectionAuraRenderer.sortingLayerID = _lineRenderer.sortingLayerID;
         _selectionAuraRenderer.sortingOrder = _lineRenderer.sortingOrder - 1;

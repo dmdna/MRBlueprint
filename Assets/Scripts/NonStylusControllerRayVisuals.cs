@@ -39,16 +39,20 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     [Header("Fallback Line Style")]
     [SerializeField] private float fallbackLineWidth = 0.002f;
-    [SerializeField] private Color fallbackLineColor = Color.white;
+    [SerializeField] private float endMarkerDiameter = 0.025f;
+    [SerializeField] private float endMarkerSurfaceOffset = 0.002f;
 
     private const int LeftPointerId = -12001;
     private const int RightPointerId = -12002;
+    private const int EndMarkerSegments = 32;
+    private static readonly Color ControllerRayColor = new(1f, 1f, 1f, 0.35f);
 
     private ControllerRayState _leftRay;
     private ControllerRayState _rightRay;
     private WorldSpaceUiRayPointer.State _leftUiPointer;
     private WorldSpaceUiRayPointer.State _rightUiPointer;
     private Material _runtimeMaterial;
+    private static Mesh _endMarkerMesh;
     private bool _leftTriggerWasPressed;
     private bool _rightTriggerWasPressed;
     private bool _leftGripWasPressed;
@@ -81,6 +85,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     {
         EndControllerGrabs();
         EndGizmoDrag();
+        SetVisible(_leftRay, false);
+        SetVisible(_rightRay, false);
 
         if (_runtimeMaterial != null)
         {
@@ -92,6 +98,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     {
         EndControllerGrabs();
         EndGizmoDrag();
+        SetVisible(_leftRay, false);
+        SetVisible(_rightRay, false);
     }
 
     private RayPointerState UpdateRay(ControllerRayState rayState, Transform rayOrigin, bool isRightHand)
@@ -103,7 +111,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         var origin = rayOrigin.TransformPoint(localPositionOffset);
-        var direction = (rayOrigin.rotation * Quaternion.Euler(localEulerOffset)) * Vector3.forward;
+        var rayRotation = rayOrigin.rotation * Quaternion.Euler(localEulerOffset);
+        var direction = rayRotation * Vector3.forward;
         if (direction.sqrMagnitude < 0.0001f)
         {
             SetVisible(rayState, false);
@@ -116,7 +125,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         {
             IsUsable = true,
             Origin = origin,
-            Direction = direction
+            Direction = direction,
+            Rotation = rayRotation
         };
 
         if (WorldSpaceUiRayPointer.TryGetHit(
@@ -165,7 +175,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 return pointerState;
             }
 
-            SetLine(rayState, origin, origin + direction * Mathf.Max(0.01f, selectionRayLength));
+            SetLine(rayState, origin, origin + direction * Mathf.Max(0.01f, selectionRayLength), false);
             pointerState.RayVisible = true;
             return pointerState;
         }
@@ -482,18 +492,39 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             return;
         }
 
-        var grabTarget = ResolvePlaceableGrabTarget(pointerState);
-        if (gripPressed && !gripWasPressed && grabTarget != null)
+        var placeableGrabTarget = ResolvePlaceableGrabTarget(pointerState);
+        var drawingGrabTarget = ResolvePhysicsDrawingGrabTarget(pointerState);
+        if (gripPressed && !gripWasPressed)
         {
-            PlaceableMultiGrabCoordinator.TryBeginGrab(
-                sourceId,
-                grabTarget,
-                pointerState.Origin,
-                pointerState.Direction,
-                pointerState.HasHit ? pointerState.Hit.distance : selectionRayLength,
-                minGrabDistance,
-                Mathf.Max(minGrabDistance, maxGrabDistance));
-            UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+            var grabStarted = false;
+            if (placeableGrabTarget != null)
+            {
+                grabStarted = PlaceableMultiGrabCoordinator.TryBeginGrab(
+                    sourceId,
+                    placeableGrabTarget,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    pointerState.HasHit ? pointerState.Hit.distance : selectionRayLength,
+                    minGrabDistance,
+                    Mathf.Max(minGrabDistance, maxGrabDistance));
+            }
+            else if (drawingGrabTarget != null)
+            {
+                grabStarted = PlaceableMultiGrabCoordinator.TryBeginGrab(
+                    sourceId,
+                    drawingGrabTarget,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    pointerState.Rotation,
+                    pointerState.HasHit ? pointerState.Hit.distance : selectionRayLength,
+                    minGrabDistance,
+                    Mathf.Max(minGrabDistance, maxGrabDistance));
+            }
+
+            if (grabStarted)
+            {
+                UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+            }
         }
 
         gripWasPressed = gripPressed;
@@ -509,6 +540,11 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         return pointerState.HoveredGizmoPart != null
             ? AssetSelectionManager.Instance?.SelectedAsset
             : null;
+    }
+
+    private static PhysicsDrawingSelectable ResolvePhysicsDrawingGrabTarget(RayPointerState pointerState)
+    {
+        return pointerState.HoveredDrawing;
     }
 
     private bool ReadGripPressed(bool isRightHand)
@@ -562,9 +598,18 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             sourceId,
             pointerState.Origin,
             pointerState.Direction,
+            pointerState.Rotation,
             thumbstickY * thumbstickDepthSpeed * Time.deltaTime,
             minGrabDistance,
             Mathf.Max(minGrabDistance, maxGrabDistance));
+
+        if (PlaceableMultiGrabCoordinator.IsSourceGrabbingPhysicsDrawing(sourceId)
+            && pointerState.HasHit
+            && pointerState.HoveredDrawing != null)
+        {
+            SetLine(rayState, pointerState.Origin, pointerState.Hit.point);
+            return;
+        }
 
         if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(sourceId, out var grabPoint))
         {
@@ -598,9 +643,15 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     private void SetLine(ControllerRayState rayState, Vector3 origin, Vector3 endPoint)
     {
+        SetLine(rayState, origin, endPoint, true);
+    }
+
+    private void SetLine(ControllerRayState rayState, Vector3 origin, Vector3 endPoint, bool showEndMarker)
+    {
         rayState.Line.SetPosition(0, origin);
         rayState.Line.SetPosition(1, endPoint);
         SetVisible(rayState, true);
+        SetEndMarker(rayState, endPoint, endPoint - origin, showEndMarker);
     }
 
     private static void SetVisible(ControllerRayState rayState, bool isVisible)
@@ -608,6 +659,38 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         if (rayState.Line != null && rayState.Line.enabled != isVisible)
         {
             rayState.Line.enabled = isVisible;
+        }
+
+        if (!isVisible && rayState.EndMarker != null && rayState.EndMarker.gameObject.activeSelf)
+        {
+            rayState.EndMarker.gameObject.SetActive(false);
+        }
+    }
+
+    private void SetEndMarker(
+        ControllerRayState rayState,
+        Vector3 endPoint,
+        Vector3 rayVector,
+        bool isVisible)
+    {
+        if (rayState.EndMarker == null)
+        {
+            return;
+        }
+
+        if (!isVisible || rayVector.sqrMagnitude <= 0.000001f)
+        {
+            rayState.EndMarker.gameObject.SetActive(false);
+            return;
+        }
+
+        var direction = rayVector.normalized;
+        rayState.EndMarker.position = endPoint - direction * Mathf.Max(0f, endMarkerSurfaceOffset);
+        rayState.EndMarker.rotation = Quaternion.LookRotation(-direction, Vector3.up);
+        rayState.EndMarker.localScale = Vector3.one * Mathf.Max(0.001f, endMarkerDiameter);
+        if (!rayState.EndMarker.gameObject.activeSelf)
+        {
+            rayState.EndMarker.gameObject.SetActive(true);
         }
     }
 
@@ -622,6 +705,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         rayObject.transform.SetParent(transform, false);
         rayState.Line = rayObject.AddComponent<LineRenderer>();
         ConfigureLine(rayState.Line);
+        EnsureEndMarker(ref rayState, name + "EndMarker");
     }
 
     private void ConfigureLine(LineRenderer line)
@@ -632,24 +716,35 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         line.shadowCastingMode = ShadowCastingMode.Off;
         line.receiveShadows = false;
 
-        if (lineTemplate != null)
+        line.sharedMaterial = GetOrCreateRuntimeMaterial();
+        line.widthMultiplier = lineTemplate != null ? lineTemplate.widthMultiplier : fallbackLineWidth;
+        line.widthCurve = lineTemplate != null ? lineTemplate.widthCurve : AnimationCurve.Constant(0f, 1f, 1f);
+        line.startColor = ControllerRayColor;
+        line.endColor = ControllerRayColor;
+        line.colorGradient = BuildGradient(ControllerRayColor);
+        line.alignment = lineTemplate != null ? lineTemplate.alignment : LineAlignment.View;
+        line.textureMode = LineTextureMode.Stretch;
+        line.numCornerVertices = lineTemplate != null ? lineTemplate.numCornerVertices : 0;
+        line.numCapVertices = lineTemplate != null ? lineTemplate.numCapVertices : 0;
+    }
+
+    private void EnsureEndMarker(ref ControllerRayState rayState, string name)
+    {
+        if (rayState.EndMarker != null)
         {
-            line.sharedMaterial = lineTemplate.sharedMaterial;
-            line.widthMultiplier = lineTemplate.widthMultiplier;
-            line.widthCurve = lineTemplate.widthCurve;
-            line.colorGradient = lineTemplate.colorGradient;
-            line.alignment = lineTemplate.alignment;
-            line.textureMode = lineTemplate.textureMode;
-            line.numCornerVertices = lineTemplate.numCornerVertices;
-            line.numCapVertices = lineTemplate.numCapVertices;
             return;
         }
 
-        line.sharedMaterial = GetOrCreateRuntimeMaterial();
-        line.widthMultiplier = fallbackLineWidth;
-        line.startColor = fallbackLineColor;
-        line.endColor = fallbackLineColor;
-        line.alignment = LineAlignment.View;
+        var markerObject = new GameObject(name);
+        markerObject.transform.SetParent(transform, false);
+        var meshFilter = markerObject.AddComponent<MeshFilter>();
+        meshFilter.sharedMesh = GetOrCreateEndMarkerMesh();
+        rayState.EndMarkerRenderer = markerObject.AddComponent<MeshRenderer>();
+        rayState.EndMarkerRenderer.sharedMaterial = GetOrCreateRuntimeMaterial();
+        rayState.EndMarkerRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        rayState.EndMarkerRenderer.receiveShadows = false;
+        rayState.EndMarker = markerObject.transform;
+        markerObject.SetActive(false);
     }
 
     private Material GetOrCreateRuntimeMaterial()
@@ -659,7 +754,12 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             return _runtimeMaterial;
         }
 
-        var shader = Shader.Find("Universal Render Pipeline/Unlit");
+        var shader = Shader.Find("MRBlueprint/RayNoStackTransparent");
+        if (shader == null)
+        {
+            shader = Shader.Find("Universal Render Pipeline/Unlit");
+        }
+
         if (shader == null)
         {
             shader = Shader.Find("Sprites/Default");
@@ -673,13 +773,28 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         _runtimeMaterial = new Material(shader)
         {
             name = "ControllerRayRuntimeMaterial",
-            color = fallbackLineColor,
+            color = ControllerRayColor,
             enableInstancing = true
         };
 
         if (_runtimeMaterial.HasProperty("_BaseColor"))
         {
-            _runtimeMaterial.SetColor("_BaseColor", fallbackLineColor);
+            _runtimeMaterial.SetColor("_BaseColor", ControllerRayColor);
+        }
+
+        if (_runtimeMaterial.HasProperty("_Color"))
+        {
+            _runtimeMaterial.SetColor("_Color", ControllerRayColor);
+        }
+
+        if (_runtimeMaterial.HasProperty("_BaseMap"))
+        {
+            _runtimeMaterial.SetTexture("_BaseMap", Texture2D.whiteTexture);
+        }
+
+        if (_runtimeMaterial.HasProperty("_MainTex"))
+        {
+            _runtimeMaterial.SetTexture("_MainTex", Texture2D.whiteTexture);
         }
 
         if (_runtimeMaterial.HasProperty("_Surface"))
@@ -692,7 +807,125 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             _runtimeMaterial.SetFloat("_Blend", 0f);
         }
 
+        if (_runtimeMaterial.HasProperty("_Cull"))
+        {
+            _runtimeMaterial.SetFloat("_Cull", (float)CullMode.Off);
+        }
+
+        ConfigureTransparentMaterial(_runtimeMaterial);
         return _runtimeMaterial;
+    }
+
+    private static void ConfigureTransparentMaterial(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        material.SetOverrideTag("RenderType", "Transparent");
+        material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+        material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+        material.SetInt("_ZWrite", 0);
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.EnableKeyword("_ALPHABLEND_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.renderQueue = (int)RenderQueue.Transparent;
+    }
+
+    private static Mesh GetOrCreateEndMarkerMesh()
+    {
+        if (_endMarkerMesh != null)
+        {
+            return _endMarkerMesh;
+        }
+
+        var longitude = Mathf.Max(8, EndMarkerSegments);
+        var latitude = Mathf.Max(4, EndMarkerSegments / 2);
+        var ringCount = latitude - 1;
+        var vertices = new Vector3[2 + ringCount * longitude];
+        var triangles = new int[longitude * (2 + Mathf.Max(0, ringCount - 1) * 2) * 3];
+
+        vertices[0] = Vector3.up * 0.5f;
+        var vertexIndex = 1;
+        for (var lat = 1; lat < latitude; lat++)
+        {
+            var theta = Mathf.PI * lat / latitude;
+            var y = Mathf.Cos(theta) * 0.5f;
+            var radius = Mathf.Sin(theta) * 0.5f;
+            for (var lon = 0; lon < longitude; lon++)
+            {
+                var phi = Mathf.PI * 2f * lon / longitude;
+                vertices[vertexIndex++] = new Vector3(
+                    Mathf.Cos(phi) * radius,
+                    y,
+                    Mathf.Sin(phi) * radius);
+            }
+        }
+
+        var bottomIndex = vertices.Length - 1;
+        vertices[bottomIndex] = Vector3.down * 0.5f;
+        var triangleIndex = 0;
+
+        for (var lon = 0; lon < longitude; lon++)
+        {
+            var next = (lon + 1) % longitude;
+            triangles[triangleIndex++] = 0;
+            triangles[triangleIndex++] = 1 + next;
+            triangles[triangleIndex++] = 1 + lon;
+        }
+
+        for (var ring = 0; ring < ringCount - 1; ring++)
+        {
+            var currentRing = 1 + ring * longitude;
+            var nextRing = currentRing + longitude;
+            for (var lon = 0; lon < longitude; lon++)
+            {
+                var next = (lon + 1) % longitude;
+                triangles[triangleIndex++] = currentRing + lon;
+                triangles[triangleIndex++] = nextRing + next;
+                triangles[triangleIndex++] = nextRing + lon;
+                triangles[triangleIndex++] = currentRing + lon;
+                triangles[triangleIndex++] = currentRing + next;
+                triangles[triangleIndex++] = nextRing + next;
+            }
+        }
+
+        var lastRing = 1 + (ringCount - 1) * longitude;
+        for (var lon = 0; lon < longitude; lon++)
+        {
+            var next = (lon + 1) % longitude;
+            triangles[triangleIndex++] = bottomIndex;
+            triangles[triangleIndex++] = lastRing + lon;
+            triangles[triangleIndex++] = lastRing + next;
+        }
+
+        _endMarkerMesh = new Mesh
+        {
+            name = "RayEndSphere"
+        };
+        _endMarkerMesh.vertices = vertices;
+        _endMarkerMesh.triangles = triangles;
+        _endMarkerMesh.RecalculateBounds();
+        _endMarkerMesh.RecalculateNormals();
+        return _endMarkerMesh;
+    }
+
+    private static Gradient BuildGradient(Color color)
+    {
+        var gradient = new Gradient();
+        gradient.SetKeys(
+            new[]
+            {
+                new GradientColorKey(color, 0f),
+                new GradientColorKey(color, 1f),
+            },
+            new[]
+            {
+                new GradientAlphaKey(color.a, 0f),
+                new GradientAlphaKey(color.a, 1f),
+            });
+        return gradient;
     }
 
     private void ResolveReferences()
@@ -784,6 +1017,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private struct ControllerRayState
     {
         public LineRenderer Line;
+        public Transform EndMarker;
+        public MeshRenderer EndMarkerRenderer;
     }
 
     private struct RayPointerState
@@ -792,6 +1027,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         public bool RayVisible;
         public Vector3 Origin;
         public Vector3 Direction;
+        public Quaternion Rotation;
         public bool HasHit;
         public RaycastHit Hit;
         public PlaceableAsset HoveredShape;

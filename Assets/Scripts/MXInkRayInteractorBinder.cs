@@ -31,13 +31,19 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     [SerializeField] private LayerMask _placeableRaycastMask = ~0;
     [SerializeField] private float _minGrabDistance = 0.25f;
     [SerializeField] private float _maxGrabDistance = 8f;
+    [SerializeField] private float _endMarkerDiameter = 0.025f;
+    [SerializeField] private float _endMarkerSurfaceOffset = 0.002f;
 
     private const int MXInkPointerId = -12003;
+    private const int EndMarkerSegments = 32;
 
     private XRRayInteractor _rayInteractor;
     private LineRenderer _lineRenderer;
     private Transform _runtimeRayOrigin;
+    private Transform _endMarker;
+    private MeshRenderer _endMarkerRenderer;
     private Material _runtimeMaterial;
+    private static Mesh _endMarkerMesh;
     private WorldSpaceUiRayPointer.State _uiPointerState;
     private bool _clusterBackWasPressed;
     private bool _clusterFrontWasPressed;
@@ -47,9 +53,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     public static bool RearButtonSelectionTargetActive { get; private set; }
     public static bool FrontButtonShapeGrabTargetActive { get; private set; }
 
-    private static readonly Color ValidColor = Color.white;
-    private static readonly Color InvalidColor = new(1f, 0.35f, 0.35f, 1f);
-    private static readonly Color BlockedColor = new(1f, 0.92f, 0.15f, 1f);
+    private static readonly Color RayColor = new(0f, 0f, 0f, 0.95f);
 
     private void Awake()
     {
@@ -101,6 +105,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     {
         EndGizmoDrag();
         PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
+        HideEndMarker();
         RearButtonSelectionTargetActive = false;
         FrontButtonShapeGrabTargetActive = false;
         _rearButtonSelectionLatch = false;
@@ -115,6 +120,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     {
         EndGizmoDrag();
         PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
+        HideEndMarker();
         RearButtonSelectionTargetActive = false;
         FrontButtonShapeGrabTargetActive = false;
         _rearButtonSelectionLatch = false;
@@ -172,9 +178,9 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             _lineVisual.overrideInteractorLineOrigin = true;
             _lineVisual.lineOriginTransform = _runtimeRayOrigin;
             _lineVisual.setLineColorGradient = true;
-            _lineVisual.validColorGradient = BuildGradient(ValidColor);
-            _lineVisual.invalidColorGradient = BuildGradient(InvalidColor);
-            _lineVisual.blockedColorGradient = BuildGradient(BlockedColor);
+            _lineVisual.validColorGradient = BuildGradient(RayColor);
+            _lineVisual.invalidColorGradient = BuildGradient(RayColor);
+            _lineVisual.blockedColorGradient = BuildGradient(RayColor);
         }
     }
 
@@ -186,17 +192,20 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         _lineRenderer.shadowCastingMode = ShadowCastingMode.Off;
         _lineRenderer.receiveShadows = false;
 
-        if (_lineRenderer.sharedMaterial == null)
+        if (_runtimeMaterial == null)
         {
             _runtimeMaterial = CreateLineMaterial();
-            if (_runtimeMaterial != null)
-            {
-                _lineRenderer.sharedMaterial = _runtimeMaterial;
-            }
         }
 
-        _lineRenderer.startColor = ValidColor;
-        _lineRenderer.endColor = ValidColor;
+        if (_runtimeMaterial != null)
+        {
+            _lineRenderer.sharedMaterial = _runtimeMaterial;
+        }
+
+        _lineRenderer.textureMode = LineTextureMode.Stretch;
+        _lineRenderer.startColor = RayColor;
+        _lineRenderer.endColor = RayColor;
+        EnsureEndMarker();
     }
 
     private StylusPointerState BuildPointerState()
@@ -224,7 +233,8 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         {
             IsUsable = true,
             Origin = origin,
-            Direction = direction
+            Direction = direction,
+            Rotation = _runtimeRayOrigin.rotation
         };
 
         if (WorldSpaceUiRayPointer.TryGetHit(
@@ -274,6 +284,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                                           || selectionExists
                                           || _rearButtonSelectionLatch;
         FrontButtonShapeGrabTargetActive = ResolvePlaceableGrabTarget(pointerState) != null
+                                           || ResolvePhysicsDrawingGrabTarget(pointerState) != null
                                            || PlaceableMultiGrabCoordinator.IsSourceGrabbing(
                                                PlaceableMultiGrabCoordinator.MXInkSourceId);
         return pointerState;
@@ -323,6 +334,17 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         {
             _lineVisual.enabled = false;
         }
+
+        if (isVisible
+            && pointerState.IsUsable
+            && TryResolveEndMarkerPoint(pointerState, out var markerPoint))
+        {
+            SetEndMarker(markerPoint, pointerState.Direction, true);
+        }
+        else
+        {
+            HideEndMarker();
+        }
     }
 
     private void ApplyManualLine(StylusPointerState pointerState)
@@ -333,7 +355,13 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         }
 
         var endPoint = pointerState.Origin + pointerState.Direction * Mathf.Max(0.01f, _drawerSelectionRayDistance);
-        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(
+        if (PlaceableMultiGrabCoordinator.IsSourceGrabbingPhysicsDrawing(PlaceableMultiGrabCoordinator.MXInkSourceId)
+            && pointerState.HasHit
+            && pointerState.HoveredDrawing != null)
+        {
+            endPoint = pointerState.Hit.point;
+        }
+        else if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(
                 PlaceableMultiGrabCoordinator.MXInkSourceId,
                 out var grabPoint))
         {
@@ -351,6 +379,100 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         _lineRenderer.positionCount = 2;
         _lineRenderer.SetPosition(0, pointerState.Origin);
         _lineRenderer.SetPosition(1, endPoint);
+    }
+
+    private bool TryResolveEndMarkerPoint(StylusPointerState pointerState, out Vector3 point)
+    {
+        if (pointerState.HasUiHit)
+        {
+            point = pointerState.UiHit.WorldPoint;
+            return true;
+        }
+
+        if (PlaceableMultiGrabCoordinator.IsSourceGrabbingPhysicsDrawing(PlaceableMultiGrabCoordinator.MXInkSourceId)
+            && pointerState.HasHit
+            && pointerState.HoveredDrawing != null)
+        {
+            point = pointerState.Hit.point;
+            return true;
+        }
+
+        if (pointerState.HasHit)
+        {
+            point = pointerState.Hit.point;
+            return true;
+        }
+
+        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(
+                PlaceableMultiGrabCoordinator.MXInkSourceId,
+                out var grabPoint))
+        {
+            point = grabPoint;
+            return true;
+        }
+
+        point = default;
+        return false;
+    }
+
+    private void EnsureEndMarker()
+    {
+        if (_endMarker != null)
+        {
+            if (_endMarkerRenderer != null && _runtimeMaterial != null)
+            {
+                _endMarkerRenderer.sharedMaterial = _runtimeMaterial;
+            }
+
+            return;
+        }
+
+        var markerObject = new GameObject("MXInkRayEndMarker");
+        markerObject.transform.SetParent(transform, false);
+        var meshFilter = markerObject.AddComponent<MeshFilter>();
+        meshFilter.sharedMesh = GetOrCreateEndMarkerMesh();
+        _endMarkerRenderer = markerObject.AddComponent<MeshRenderer>();
+        _endMarkerRenderer.sharedMaterial = _runtimeMaterial;
+        _endMarkerRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        _endMarkerRenderer.receiveShadows = false;
+        _endMarker = markerObject.transform;
+        markerObject.SetActive(false);
+    }
+
+    private void SetEndMarker(Vector3 endPoint, Vector3 rayDirection, bool visible)
+    {
+        EnsureEndMarker();
+        if (_endMarker == null)
+        {
+            return;
+        }
+
+        if (!visible || rayDirection.sqrMagnitude <= 0.000001f)
+        {
+            if (_endMarker.gameObject.activeSelf)
+            {
+                _endMarker.gameObject.SetActive(false);
+            }
+
+            return;
+        }
+
+        var direction = rayDirection.normalized;
+        _endMarker.position = endPoint - direction * Mathf.Max(0f, _endMarkerSurfaceOffset);
+        _endMarker.rotation = Quaternion.LookRotation(-direction, Vector3.up);
+        _endMarker.localScale = Vector3.one * Mathf.Max(0.001f, _endMarkerDiameter);
+        if (!_endMarker.gameObject.activeSelf)
+        {
+            _endMarker.gameObject.SetActive(true);
+        }
+    }
+
+    private void HideEndMarker()
+    {
+        if (_endMarker != null && _endMarker.gameObject.activeSelf)
+        {
+            _endMarker.gameObject.SetActive(false);
+        }
     }
 
     private void HandleRearButtonInteractions(StylusPointerState pointerState)
@@ -483,6 +605,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                     sourceId,
                     pointerState.Origin,
                     pointerState.Direction,
+                    pointerState.Rotation,
                     0f,
                     _minGrabDistance,
                     Mathf.Max(_minGrabDistance, _maxGrabDistance));
@@ -496,25 +619,42 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             return;
         }
 
-        var grabTarget = ResolvePlaceableGrabTarget(pointerState);
+        var placeableGrabTarget = ResolvePlaceableGrabTarget(pointerState);
+        var drawingGrabTarget = ResolvePhysicsDrawingGrabTarget(pointerState);
         if (clusterFrontPressed
             && !_clusterFrontWasPressed
             && pointerState.IsUsable
-            && grabTarget != null)
+            && (placeableGrabTarget != null || drawingGrabTarget != null))
         {
-            PlaceableMultiGrabCoordinator.TryBeginGrab(
-                sourceId,
-                grabTarget,
-                pointerState.Origin,
-                pointerState.Direction,
-                pointerState.HasHit ? pointerState.Hit.distance : _placeableRayDistance,
-                _minGrabDistance,
-                Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            if (placeableGrabTarget != null)
+            {
+                PlaceableMultiGrabCoordinator.TryBeginGrab(
+                    sourceId,
+                    placeableGrabTarget,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    pointerState.HasHit ? pointerState.Hit.distance : _placeableRayDistance,
+                    _minGrabDistance,
+                    Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            }
+            else
+            {
+                PlaceableMultiGrabCoordinator.TryBeginGrab(
+                    sourceId,
+                    drawingGrabTarget,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    pointerState.Rotation,
+                    pointerState.HasHit ? pointerState.Hit.distance : _placeableRayDistance,
+                    _minGrabDistance,
+                    Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            }
 
             PlaceableMultiGrabCoordinator.UpdateGrab(
                 sourceId,
                 pointerState.Origin,
                 pointerState.Direction,
+                pointerState.Rotation,
                 0f,
                 _minGrabDistance,
                 Mathf.Max(_minGrabDistance, _maxGrabDistance));
@@ -533,6 +673,11 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         return pointerState.HoveredGizmoPart != null
             ? AssetSelectionManager.Instance?.SelectedAsset
             : null;
+    }
+
+    private static PhysicsDrawingSelectable ResolvePhysicsDrawingGrabTarget(StylusPointerState pointerState)
+    {
+        return pointerState.HoveredDrawing;
     }
 
     private bool CanUseStylusRay()
@@ -735,7 +880,12 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     private static Material CreateLineMaterial()
     {
-        var shader = Shader.Find("Universal Render Pipeline/Unlit");
+        var shader = Shader.Find("MRBlueprint/RayNoStackTransparent");
+        if (shader == null)
+        {
+            shader = Shader.Find("Universal Render Pipeline/Unlit");
+        }
+
         if (shader == null)
         {
             shader = Shader.Find("Universal Render Pipeline/Lit");
@@ -754,13 +904,28 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         var material = new Material(shader)
         {
             name = "MXInkRayRuntimeMaterial",
-            color = ValidColor,
+            color = RayColor,
             enableInstancing = true
         };
 
         if (material.HasProperty("_BaseColor"))
         {
-            material.SetColor("_BaseColor", ValidColor);
+            material.SetColor("_BaseColor", RayColor);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", RayColor);
+        }
+
+        if (material.HasProperty("_BaseMap"))
+        {
+            material.SetTexture("_BaseMap", Texture2D.whiteTexture);
+        }
+
+        if (material.HasProperty("_MainTex"))
+        {
+            material.SetTexture("_MainTex", Texture2D.whiteTexture);
         }
 
         if (material.HasProperty("_Surface"))
@@ -773,7 +938,108 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             material.SetFloat("_Blend", 0f);
         }
 
+        if (material.HasProperty("_Cull"))
+        {
+            material.SetFloat("_Cull", (float)CullMode.Off);
+        }
+
+        ConfigureTransparentMaterial(material);
         return material;
+    }
+
+    private static void ConfigureTransparentMaterial(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        material.SetOverrideTag("RenderType", "Transparent");
+        material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+        material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+        material.SetInt("_ZWrite", 0);
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.EnableKeyword("_ALPHABLEND_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.renderQueue = (int)RenderQueue.Transparent;
+    }
+
+    private static Mesh GetOrCreateEndMarkerMesh()
+    {
+        if (_endMarkerMesh != null)
+        {
+            return _endMarkerMesh;
+        }
+
+        var longitude = Mathf.Max(8, EndMarkerSegments);
+        var latitude = Mathf.Max(4, EndMarkerSegments / 2);
+        var ringCount = latitude - 1;
+        var vertices = new Vector3[2 + ringCount * longitude];
+        var triangles = new int[longitude * (2 + Mathf.Max(0, ringCount - 1) * 2) * 3];
+
+        vertices[0] = Vector3.up * 0.5f;
+        var vertexIndex = 1;
+        for (var lat = 1; lat < latitude; lat++)
+        {
+            var theta = Mathf.PI * lat / latitude;
+            var y = Mathf.Cos(theta) * 0.5f;
+            var radius = Mathf.Sin(theta) * 0.5f;
+            for (var lon = 0; lon < longitude; lon++)
+            {
+                var phi = Mathf.PI * 2f * lon / longitude;
+                vertices[vertexIndex++] = new Vector3(
+                    Mathf.Cos(phi) * radius,
+                    y,
+                    Mathf.Sin(phi) * radius);
+            }
+        }
+
+        var bottomIndex = vertices.Length - 1;
+        vertices[bottomIndex] = Vector3.down * 0.5f;
+        var triangleIndex = 0;
+
+        for (var lon = 0; lon < longitude; lon++)
+        {
+            var next = (lon + 1) % longitude;
+            triangles[triangleIndex++] = 0;
+            triangles[triangleIndex++] = 1 + next;
+            triangles[triangleIndex++] = 1 + lon;
+        }
+
+        for (var ring = 0; ring < ringCount - 1; ring++)
+        {
+            var currentRing = 1 + ring * longitude;
+            var nextRing = currentRing + longitude;
+            for (var lon = 0; lon < longitude; lon++)
+            {
+                var next = (lon + 1) % longitude;
+                triangles[triangleIndex++] = currentRing + lon;
+                triangles[triangleIndex++] = nextRing + next;
+                triangles[triangleIndex++] = nextRing + lon;
+                triangles[triangleIndex++] = currentRing + lon;
+                triangles[triangleIndex++] = currentRing + next;
+                triangles[triangleIndex++] = nextRing + next;
+            }
+        }
+
+        var lastRing = 1 + (ringCount - 1) * longitude;
+        for (var lon = 0; lon < longitude; lon++)
+        {
+            var next = (lon + 1) % longitude;
+            triangles[triangleIndex++] = bottomIndex;
+            triangles[triangleIndex++] = lastRing + lon;
+            triangles[triangleIndex++] = lastRing + next;
+        }
+
+        _endMarkerMesh = new Mesh
+        {
+            name = "MXInkRayEndSphere"
+        };
+        _endMarkerMesh.vertices = vertices;
+        _endMarkerMesh.triangles = triangles;
+        _endMarkerMesh.RecalculateBounds();
+        _endMarkerMesh.RecalculateNormals();
+        return _endMarkerMesh;
     }
 
     private struct StylusPointerState
@@ -781,6 +1047,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         public bool IsUsable;
         public Vector3 Origin;
         public Vector3 Direction;
+        public Quaternion Rotation;
         public bool HasHit;
         public RaycastHit Hit;
         public PlaceableAsset HoveredShape;
