@@ -13,9 +13,14 @@ public class LineDrawing : MonoBehaviour
     private LineRenderer _currentLine;
     private List<float> _currentLineWidths = new List<float>(); //list to store line widths
     private readonly List<StrokePoint> _currentStrokePoints = new List<StrokePoint>();
+    private readonly List<PressureSample> _currentPressureSamples = new List<PressureSample>();
 
     [SerializeField] float _maxLineWidth = 0.01f;
     [SerializeField] float _minLineWidth = 0.0005f;
+    [SerializeField] private float springLineWidthMultiplier = 1.45f;
+    [SerializeField] private float springReleaseDipWindowSeconds = 0.12f;
+    [SerializeField] private float springReleaseDipPressureThreshold = 0.18f;
+    [SerializeField] private float springReleaseDipRateThreshold = 4f;
 
     [SerializeField] Material _material;
 
@@ -66,6 +71,12 @@ public class LineDrawing : MonoBehaviour
     private const float _minDistanceBetweenLinePoints = 0.0005f;
     private float _strokeStartTime;
 
+    private struct PressureSample
+    {
+        public float Pressure;
+        public float Timestamp;
+    }
+
     private void Awake()
     {
         if (_gestureInterpreter == null)
@@ -96,6 +107,7 @@ public class LineDrawing : MonoBehaviour
         _lines.Add(gameObject);
         _previousLinePoint = new Vector3(0, 0, 0);
         _currentStrokePoints.Clear();
+        _currentPressureSamples.Clear();
         _strokeStartTime = Time.time;
     }
 
@@ -145,16 +157,33 @@ public class LineDrawing : MonoBehaviour
             return;
         }
 
+        var springStiffness = readout.PhysicsIntent == PhysicsIntentType.Spring
+            ? CalculateFinalSpringStiffness()
+            : 0f;
+
         _currentLine.positionCount = readout.DisplayPoints.Count;
         _currentLine.SetPositions(readout.DisplayPoints.ToArray());
-        var widthMultiplier = GetWidthMultiplier(readout.ShapeName);
-        ApplyWidthCurve(_currentLine, _currentLineWidths, readout.DisplayPoints.Count, widthMultiplier);
+        if (UsesFixedThickStroke(readout))
+        {
+            ApplyFixedWidthCurve(_currentLine, GetThickPhysicsLineWidth());
+        }
+        else
+        {
+            var widthMultiplier = GetWidthMultiplier(readout);
+            ApplyWidthCurve(_currentLine, _currentLineWidths, readout.DisplayPoints.Count, widthMultiplier);
+        }
+
+        if (readout.PhysicsIntent != PhysicsIntentType.Spring)
+        {
+            SetLineColor(_currentLine, _currentColor);
+        }
+
         UpdateArrowTipVisual(_currentLine.gameObject, readout);
-        InitializePhysicsDrawing(_currentLine.gameObject, readout);
+        InitializePhysicsDrawing(_currentLine.gameObject, readout, springStiffness);
         Debug.Log($"[LineDrawing] Snapped stroke to {readout.ShapeName} ({readout.Gesture.Confidence:0.00})");
     }
 
-    private void InitializePhysicsDrawing(GameObject lineObject, PhysicsGestureReadoutResult readout)
+    private void InitializePhysicsDrawing(GameObject lineObject, PhysicsGestureReadoutResult readout, float springStiffness)
     {
         if (lineObject == null || readout == null)
         {
@@ -168,7 +197,74 @@ public class LineDrawing : MonoBehaviour
             selectable = lineObject.AddComponent<PhysicsDrawingSelectable>();
         }
 
-        selectable.Initialize(readout, highlightColor);
+        selectable.SetOwner(this);
+        selectable.Initialize(readout, highlightColor, _currentColor);
+        if (readout.PhysicsIntent == PhysicsIntentType.Spring)
+        {
+            selectable.SetSpringStiffness(springStiffness);
+        }
+    }
+
+    private void RecordPressureSample(float pressure)
+    {
+        _currentPressureSamples.Add(new PressureSample
+        {
+            Pressure = Mathf.Clamp01(pressure),
+            Timestamp = Time.time
+        });
+    }
+
+    private float CalculateFinalSpringStiffness()
+    {
+        if (_currentPressureSamples.Count == 0)
+        {
+            return _currentStrokePoints.Count > 0
+                ? Mathf.Clamp01(_currentStrokePoints[_currentStrokePoints.Count - 1].Pressure)
+                : 0f;
+        }
+
+        var candidateIndex = _currentPressureSamples.Count - 1;
+        var releaseTimestamp = _currentPressureSamples[candidateIndex].Timestamp;
+
+        for (var i = candidateIndex - 1; i >= 0; i--)
+        {
+            var older = _currentPressureSamples[i];
+            var newer = _currentPressureSamples[i + 1];
+            var secondsFromRelease = releaseTimestamp - newer.Timestamp;
+            var pressureDrop = older.Pressure - newer.Pressure;
+            var sampleDeltaTime = Mathf.Max(newer.Timestamp - older.Timestamp, 0.0001f);
+            var dropRate = pressureDrop / sampleDeltaTime;
+
+            if (secondsFromRelease > springReleaseDipWindowSeconds
+                || pressureDrop < springReleaseDipPressureThreshold
+                || dropRate < springReleaseDipRateThreshold)
+            {
+                break;
+            }
+
+            candidateIndex = i;
+        }
+
+        return Mathf.Clamp01(_currentPressureSamples[candidateIndex].Pressure);
+    }
+
+    private void SetLineColor(LineRenderer lineRenderer, Color color)
+    {
+        if (lineRenderer == null)
+        {
+            return;
+        }
+
+        if (lineRenderer.material != null)
+        {
+            lineRenderer.material.color = color;
+        }
+
+        var arrowTip = lineRenderer.GetComponent<LineArrowTip>();
+        if (arrowTip != null)
+        {
+            arrowTip.SetColor(color);
+        }
     }
 
     private void ApplyWidthCurve(LineRenderer lineRenderer, IReadOnlyList<float> sourceWidths, int targetCount, float widthMultiplier = 1f)
@@ -201,6 +297,22 @@ public class LineDrawing : MonoBehaviour
         lineRenderer.endWidth = sourceWidths[sourceWidths.Count - 1] * widthMultiplier;
     }
 
+    private void ApplyFixedWidthCurve(LineRenderer lineRenderer, float width)
+    {
+        if (lineRenderer == null)
+        {
+            return;
+        }
+
+        width = Mathf.Max(width, _minLineWidth);
+        var curve = new AnimationCurve();
+        curve.AddKey(0f, width);
+        curve.AddKey(1f, width);
+        lineRenderer.widthCurve = curve;
+        lineRenderer.startWidth = width;
+        lineRenderer.endWidth = width;
+    }
+
     private float SampleWidth(IReadOnlyList<float> sourceWidths, float normalizedT)
     {
         if (sourceWidths.Count == 1)
@@ -215,9 +327,37 @@ public class LineDrawing : MonoBehaviour
         return Mathf.Lerp(sourceWidths[minIndex], sourceWidths[maxIndex], blend);
     }
 
-    private float GetWidthMultiplier(string shapeName)
+    private float GetWidthMultiplier(PhysicsGestureReadoutResult readout)
     {
-        return shapeName == "Line" || shapeName == "Flick" ? SnappedLineWidthMultiplier : 1f;
+        return readout.ShapeName == "Flick" ? SnappedLineWidthMultiplier : 1f;
+    }
+
+    private bool UsesFixedThickStroke(PhysicsGestureReadoutResult readout)
+    {
+        return readout.PhysicsIntent == PhysicsIntentType.Spring
+               || readout.PhysicsIntent == PhysicsIntentType.Impulse;
+    }
+
+    private float GetThickPhysicsLineWidth()
+    {
+        return Mathf.Max(_minLineWidth, _maxLineWidth * springLineWidthMultiplier);
+    }
+
+    public void DeleteLine(GameObject lineObject)
+    {
+        if (lineObject == null)
+        {
+            return;
+        }
+
+        _lines.Remove(lineObject);
+        if (_highlightedLine == lineObject)
+        {
+            _highlightedLine = null;
+            _movingLine = false;
+        }
+
+        Destroy(lineObject);
     }
 
     private void RemoveLastLine()
@@ -270,6 +410,7 @@ public class LineDrawing : MonoBehaviour
                 StartNewLine();
                 _isDrawing = true;
             }
+            RecordPressureSample(analogInput);
             AddPoint(_stylusHandler.CurrentState.inkingPose.position, _lineWidthIsFixed ? 1.0f : analogInput);
             return;
         }
@@ -277,6 +418,7 @@ public class LineDrawing : MonoBehaviour
         {
             if (_isDrawing)
             {
+                RecordPressureSample(analogInput);
                 FinalizeCurrentLine();
             }
             _isDrawing = false;
@@ -294,9 +436,7 @@ public class LineDrawing : MonoBehaviour
                 buttonPressedTimestamp = Time.time;
                 if (_highlightedLine)
                 {
-                    _lines.Remove(_highlightedLine);
-                    Destroy(_highlightedLine);
-                    _highlightedLine = null;
+                    DeleteLine(_highlightedLine);
                     //haptic click when removing highlighted line
                     ((VrStylusHandler)_stylusHandler).TriggerHapticClick();
                     return;
@@ -568,9 +708,14 @@ public class LineDrawing : MonoBehaviour
 public sealed class LineArrowTip : MonoBehaviour
 {
     private GameObject _coneObject;
+    private GameObject _auraConeObject;
     private MeshFilter _meshFilter;
+    private MeshFilter _auraMeshFilter;
     private MeshRenderer _meshRenderer;
+    private MeshRenderer _auraMeshRenderer;
     private Mesh _coneMesh;
+    private float _auraScaleMultiplier = 1.45f;
+    private float _auraBaseOverlapFraction = 0.35f;
 
     public void EnsureInitialized(Material baseMaterial, Color color)
     {
@@ -620,6 +765,11 @@ public sealed class LineArrowTip : MonoBehaviour
         if (direction.sqrMagnitude <= 0.000001f)
         {
             _coneObject.SetActive(false);
+            if (_auraConeObject != null)
+            {
+                _auraConeObject.SetActive(false);
+            }
+
             return;
         }
 
@@ -627,6 +777,7 @@ public sealed class LineArrowTip : MonoBehaviour
         _coneObject.transform.position = tip;
         _coneObject.transform.rotation = Quaternion.FromToRotation(Vector3.up, direction.normalized);
         _coneObject.transform.localScale = new Vector3(coneRadius * 2f, coneLength, coneRadius * 2f);
+        RefreshAuraConeTransform();
     }
 
     public void SetColor(Color color)
@@ -639,11 +790,118 @@ public sealed class LineArrowTip : MonoBehaviour
         _meshRenderer.material.color = color;
     }
 
+    public void SetAuraVisible(
+        bool visible,
+        Material material,
+        Color color,
+        float scaleMultiplier,
+        float baseOverlapFraction)
+    {
+        if (!visible)
+        {
+            if (_auraConeObject != null)
+            {
+                _auraConeObject.SetActive(false);
+            }
+
+            return;
+        }
+
+        if (material == null || _coneObject == null || !_coneObject.activeSelf)
+        {
+            return;
+        }
+
+        EnsureAuraCone(material);
+        _auraScaleMultiplier = Mathf.Max(1f, scaleMultiplier);
+        _auraBaseOverlapFraction = Mathf.Max(0f, baseOverlapFraction);
+        if (_auraMeshRenderer != null)
+        {
+            _auraMeshRenderer.sharedMaterial = material;
+            _auraMeshRenderer.sortingLayerID = _meshRenderer != null ? _meshRenderer.sortingLayerID : 0;
+            _auraMeshRenderer.sortingOrder = (_meshRenderer != null ? _meshRenderer.sortingOrder : 0) - 1;
+            _auraMeshRenderer.sharedMaterial.color = color;
+            if (_auraMeshRenderer.sharedMaterial.HasProperty("_Color"))
+            {
+                _auraMeshRenderer.sharedMaterial.SetColor("_Color", color);
+            }
+
+            var mainRenderQueue = _meshRenderer != null
+                                  && _meshRenderer.sharedMaterial != null
+                                  && _meshRenderer.sharedMaterial.renderQueue >= 0
+                ? _meshRenderer.sharedMaterial.renderQueue
+                : 2000;
+            _auraMeshRenderer.sharedMaterial.renderQueue =
+                Mathf.Min(_auraMeshRenderer.sharedMaterial.renderQueue, mainRenderQueue - 1);
+        }
+
+        RefreshAuraConeTransform();
+        _auraConeObject.SetActive(true);
+    }
+
+    public bool TryGetAuraBasePosition(float baseOverlapFraction, out Vector3 position)
+    {
+        position = Vector3.zero;
+        if (_coneObject == null || !_coneObject.activeSelf)
+        {
+            return false;
+        }
+
+        var overlapDistance = _coneObject.transform.localScale.y * Mathf.Max(0f, baseOverlapFraction);
+        position = _coneObject.transform.position - _coneObject.transform.up * overlapDistance;
+        return true;
+    }
+
+    private void EnsureAuraCone(Material material)
+    {
+        if (_auraConeObject != null)
+        {
+            return;
+        }
+
+        if (_coneMesh == null)
+        {
+            _coneMesh = BuildConeMesh(16);
+        }
+
+        _auraConeObject = new GameObject("ArrowTipAura");
+        _auraConeObject.transform.SetParent(transform, false);
+        _auraMeshFilter = _auraConeObject.AddComponent<MeshFilter>();
+        _auraMeshRenderer = _auraConeObject.AddComponent<MeshRenderer>();
+        _auraMeshFilter.sharedMesh = _coneMesh;
+        _auraMeshRenderer.sharedMaterial = material;
+        _auraMeshRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        _auraMeshRenderer.receiveShadows = false;
+        _auraConeObject.SetActive(false);
+    }
+
+    private void RefreshAuraConeTransform()
+    {
+        if (_auraConeObject == null || _coneObject == null)
+        {
+            return;
+        }
+
+        var overlapDistance = _coneObject.transform.localScale.y * _auraBaseOverlapFraction;
+        _auraConeObject.transform.position = _coneObject.transform.position - _coneObject.transform.up * overlapDistance;
+        _auraConeObject.transform.rotation = _coneObject.transform.rotation;
+        var coneScale = _coneObject.transform.localScale;
+        _auraConeObject.transform.localScale = new Vector3(
+            coneScale.x * _auraScaleMultiplier,
+            coneScale.y * (_auraScaleMultiplier + _auraBaseOverlapFraction),
+            coneScale.z * _auraScaleMultiplier);
+    }
+
     private void OnDestroy()
     {
         if (_coneObject != null)
         {
             Destroy(_coneObject);
+        }
+
+        if (_auraConeObject != null)
+        {
+            Destroy(_auraConeObject);
         }
 
         if (_meshRenderer != null && _meshRenderer.material != null)

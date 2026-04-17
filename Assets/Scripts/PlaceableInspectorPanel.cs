@@ -212,7 +212,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(1f, 1f);
         rt.anchoredPosition = new Vector2(-12f, -12f);
-        rt.sizeDelta = new Vector2(280f, 132f);
+        rt.sizeDelta = new Vector2(280f, 164f);
 
         float y = -12f;
         const float rowH = 22f;
@@ -230,6 +230,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _drawingImpulseInstantToggle = CreateLabeledToggle(
             _drawingPanelRoot.transform, "Instant", ref y, rowH, gap, OnDrawingImpulseInstantChanged,
             out _drawingImpulseInstantRow);
+        var deleteY = -120f;
+        CreateButton(_drawingPanelRoot.transform, "Delete", ref deleteY, rowH + 6, gap, OnDrawingDeleteClicked);
         HideAllDrawingControlRows();
         _drawingPanelRoot.SetActive(false);
     }
@@ -436,6 +438,16 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         _drawingTarget.SetImpulseInstant(instant);
+    }
+
+    private void OnDrawingDeleteClicked()
+    {
+        if (_drawingTarget == null)
+        {
+            return;
+        }
+
+        _drawingTarget.Delete();
     }
 
     private void RefreshDrawingControls()
