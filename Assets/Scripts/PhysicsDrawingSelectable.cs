@@ -25,11 +25,17 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     [SerializeField] private float selectionAuraWidthMultiplier = 2.8f;
     [SerializeField] private float selectionAuraConeScaleMultiplier = 1.5f;
     [SerializeField] private float selectionAuraConeBaseOverlapFraction = 0.35f;
+    [SerializeField] private float endpointHandleDiameter = 0.045f;
+    [SerializeField] private float endpointHandleColliderRadius = 0.035f;
+    [SerializeField] private Color endpointHandleHoverColor = new Color(1f, 1f, 1f, 0.82f);
+    [SerializeField] private Color endpointHandleDragColor = new Color(0.2f, 0.85f, 1f, 0.95f);
 
     private readonly List<GameObject> _colliders = new();
     private LineRenderer _lineRenderer;
     private LineRenderer _selectionAuraRenderer;
     private LineArrowTip _arrowTip;
+    private PhysicsDrawingEndpointHandle _startHandle;
+    private PhysicsDrawingEndpointHandle _endHandle;
     private Material _selectionAuraMaterial;
     private LineDrawing _owner;
     private Color _baseColor = Color.white;
@@ -40,6 +46,8 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     public PhysicsIntentType PhysicsIntent => physicsIntent;
     public string ShapeName => shapeName;
     public bool IsSelected => _isSelected;
+    public bool SupportsEndpointEditing => physicsIntent == PhysicsIntentType.Spring || physicsIntent == PhysicsIntentType.Impulse;
+    public bool SupportsRadiusScaling => physicsIntent == PhysicsIntentType.Hinge;
     public float SpringStiffness => springStiffness;
     public float HingeTorque => hingeTorque;
     public float ImpulseForce => impulseForce;
@@ -49,6 +57,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     {
         ResolveReferences();
         CacheBaseColor();
+        RefreshEndpointHandles();
     }
 
     private void OnValidate()
@@ -59,6 +68,8 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         selectionAuraWidthMultiplier = Mathf.Max(1f, selectionAuraWidthMultiplier);
         selectionAuraConeScaleMultiplier = Mathf.Max(1f, selectionAuraConeScaleMultiplier);
         selectionAuraConeBaseOverlapFraction = Mathf.Max(0f, selectionAuraConeBaseOverlapFraction);
+        endpointHandleDiameter = Mathf.Max(0.001f, endpointHandleDiameter);
+        endpointHandleColliderRadius = Mathf.Max(endpointHandleDiameter * 0.5f, endpointHandleColliderRadius);
     }
 
     private void OnDestroy()
@@ -222,6 +233,106 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         RefreshGeometryAfterLineEdit();
     }
 
+    public void SetScaledWorldLinePositions(
+        IReadOnlyList<Vector3> initialWorldPositions,
+        Vector3 targetCenter,
+        float scaleFactor)
+    {
+        SetTransformedWorldLinePositions(
+            initialWorldPositions,
+            targetCenter,
+            Quaternion.identity,
+            scaleFactor);
+    }
+
+    public void SetTransformedWorldLinePositions(
+        IReadOnlyList<Vector3> initialWorldPositions,
+        Vector3 targetCenter,
+        Quaternion rotation,
+        float scaleFactor)
+    {
+        ResolveReferences();
+        if (!SupportsRadiusScaling
+            || _lineRenderer == null
+            || initialWorldPositions == null
+            || initialWorldPositions.Count == 0)
+        {
+            return;
+        }
+
+        scaleFactor = Mathf.Max(0.001f, scaleFactor);
+        var initialCenter = CalculateWorldBoundsCenter(initialWorldPositions);
+        var scaledPositions = new Vector3[initialWorldPositions.Count];
+        for (var i = 0; i < initialWorldPositions.Count; i++)
+        {
+            scaledPositions[i] = targetCenter + rotation * ((initialWorldPositions[i] - initialCenter) * scaleFactor);
+        }
+
+        SetWorldLinePositions(scaledPositions);
+    }
+
+    public bool SetEndpointWorldPosition(PhysicsDrawingEndpoint endpoint, Vector3 worldPosition)
+    {
+        ResolveReferences();
+        if (!SupportsEndpointEditing || _lineRenderer == null || _lineRenderer.positionCount < 2)
+        {
+            return false;
+        }
+
+        var positions = GetWorldLinePositions();
+        if (positions.Length < 2)
+        {
+            return false;
+        }
+
+        var startIndex = 0;
+        var endIndex = positions.Length - 1;
+        var oldStart = positions[startIndex];
+        var oldEnd = GetVisualEndpointWorldPosition(positions);
+        var newStart = endpoint == PhysicsDrawingEndpoint.Start ? worldPosition : oldStart;
+        var newEnd = endpoint == PhysicsDrawingEndpoint.End ? worldPosition : oldEnd;
+        var newLineEnd = GetLineEndFromVisualEndpoint(newStart, newEnd);
+
+        var oldAxis = oldEnd - oldStart;
+        var newAxis = newEnd - newStart;
+        var oldLength = oldAxis.magnitude;
+        var newLength = newAxis.magnitude;
+
+        if (oldLength <= 0.0001f || newLength <= 0.0001f || positions.Length == 2)
+        {
+            positions[startIndex] = newStart;
+            positions[endIndex] = newLineEnd;
+            SetWorldLinePositions(positions);
+            return true;
+        }
+
+        var oldDirection = oldAxis / oldLength;
+        var newDirection = newAxis / newLength;
+        var rotation = Quaternion.FromToRotation(oldDirection, newDirection);
+        for (var i = 0; i < positions.Length; i++)
+        {
+            var relative = positions[i] - oldStart;
+            var alongDistance = Vector3.Dot(relative, oldDirection);
+            var perpendicular = relative - oldDirection * alongDistance;
+            var normalizedAlong = alongDistance / oldLength;
+            positions[i] = newStart + newDirection * (normalizedAlong * newLength) + rotation * perpendicular;
+        }
+
+        positions[startIndex] = newStart;
+        positions[endIndex] = newLineEnd;
+        SetWorldLinePositions(positions);
+        return true;
+    }
+
+    public bool TryGetEndpointHandle(
+        PhysicsDrawingEndpoint endpoint,
+        out PhysicsDrawingEndpointHandle handle)
+    {
+        RefreshEndpointHandles();
+        handle = endpoint == PhysicsDrawingEndpoint.Start ? _startHandle : _endHandle;
+        return handle != null && handle.isActiveAndEnabled;
+    }
+
     public void Delete()
     {
         if (AssetSelectionManager.Instance != null
@@ -249,6 +360,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         ResolveReferences();
         ClearColliders();
         RefreshSelectionAuraGeometry();
+        RefreshEndpointHandles();
 
         if (_lineRenderer == null || _lineRenderer.positionCount < 2)
         {
@@ -287,6 +399,22 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return _lineRenderer.useWorldSpace ? position : transform.TransformPoint(position);
     }
 
+    private static Vector3 CalculateWorldBoundsCenter(IReadOnlyList<Vector3> worldPositions)
+    {
+        if (worldPositions == null || worldPositions.Count == 0)
+        {
+            return Vector3.zero;
+        }
+
+        var bounds = new Bounds(worldPositions[0], Vector3.zero);
+        for (var i = 1; i < worldPositions.Count; i++)
+        {
+            bounds.Encapsulate(worldPositions[i]);
+        }
+
+        return bounds.center;
+    }
+
     private void RefreshGeometryAfterLineEdit()
     {
         if (_arrowTip != null && _lineRenderer != null)
@@ -295,6 +423,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
 
         RebuildColliders();
+        RefreshEndpointHandles();
     }
 
     private void ResolveReferences()
@@ -307,6 +436,122 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         if (_arrowTip == null)
         {
             _arrowTip = GetComponent<LineArrowTip>();
+        }
+    }
+
+    private void RefreshEndpointHandles()
+    {
+        ResolveReferences();
+        if (!SupportsEndpointEditing || _lineRenderer == null || _lineRenderer.positionCount < 2)
+        {
+            SetEndpointHandleActive(_startHandle, false);
+            SetEndpointHandleActive(_endHandle, false);
+            return;
+        }
+
+        EnsureEndpointHandle(ref _startHandle, PhysicsDrawingEndpoint.Start, "StartEndpointHandle");
+        EnsureEndpointHandle(ref _endHandle, PhysicsDrawingEndpoint.End, "EndEndpointHandle");
+
+        ConfigureEndpointHandle(_startHandle, PhysicsDrawingEndpoint.Start);
+        ConfigureEndpointHandle(_endHandle, PhysicsDrawingEndpoint.End);
+
+        _startHandle.SetWorldPosition(GetWorldLinePosition(0));
+        _endHandle.SetWorldPosition(GetEndHandleWorldPosition());
+        SetEndpointHandleActive(_startHandle, true);
+        SetEndpointHandleActive(_endHandle, true);
+    }
+
+    private Vector3 GetEndHandleWorldPosition()
+    {
+        ResolveReferences();
+        if (_lineRenderer == null || _lineRenderer.positionCount == 0)
+        {
+            return transform.position;
+        }
+
+        var positions = GetWorldLinePositions();
+        return GetVisualEndpointWorldPosition(positions);
+    }
+
+    private Vector3 GetVisualEndpointWorldPosition(IReadOnlyList<Vector3> worldPositions)
+    {
+        if (worldPositions == null || worldPositions.Count == 0)
+        {
+            return transform.position;
+        }
+
+        var lineEnd = worldPositions[worldPositions.Count - 1];
+        if (physicsIntent != PhysicsIntentType.Impulse || worldPositions.Count < 2)
+        {
+            return lineEnd;
+        }
+
+        var previous = worldPositions[worldPositions.Count - 2];
+        var direction = lineEnd - previous;
+        if (direction.sqrMagnitude <= 0.000001f)
+        {
+            return lineEnd;
+        }
+
+        return lineEnd + direction.normalized * ArrowConeLength;
+    }
+
+    private Vector3 GetLineEndFromVisualEndpoint(Vector3 visualStart, Vector3 visualEnd)
+    {
+        if (physicsIntent != PhysicsIntentType.Impulse)
+        {
+            return visualEnd;
+        }
+
+        var direction = visualEnd - visualStart;
+        var distance = direction.magnitude;
+        if (distance <= ArrowConeLength + 0.0001f)
+        {
+            return visualStart;
+        }
+
+        return visualEnd - direction / distance * ArrowConeLength;
+    }
+
+    private void EnsureEndpointHandle(
+        ref PhysicsDrawingEndpointHandle handle,
+        PhysicsDrawingEndpoint endpoint,
+        string handleName)
+    {
+        if (handle != null)
+        {
+            return;
+        }
+
+        var handleObject = new GameObject(handleName);
+        handleObject.transform.SetParent(transform, true);
+        handleObject.layer = gameObject.layer;
+        handle = handleObject.AddComponent<PhysicsDrawingEndpointHandle>();
+        ConfigureEndpointHandle(handle, endpoint);
+    }
+
+    private void ConfigureEndpointHandle(PhysicsDrawingEndpointHandle handle, PhysicsDrawingEndpoint endpoint)
+    {
+        if (handle == null)
+        {
+            return;
+        }
+
+        handle.gameObject.layer = gameObject.layer;
+        handle.Configure(
+            this,
+            endpoint,
+            endpointHandleDiameter,
+            endpointHandleColliderRadius,
+            endpointHandleHoverColor,
+            endpointHandleDragColor);
+    }
+
+    private static void SetEndpointHandleActive(PhysicsDrawingEndpointHandle handle, bool active)
+    {
+        if (handle != null && handle.gameObject.activeSelf != active)
+        {
+            handle.gameObject.SetActive(active);
         }
     }
 

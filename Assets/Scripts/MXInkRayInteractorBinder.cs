@@ -104,6 +104,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     private void OnDestroy()
     {
         EndGizmoDrag();
+        PhysicsDrawingEndpointHandle.EndRayDrag(PlaceableMultiGrabCoordinator.MXInkSourceId);
         PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
         HideEndMarker();
         RearButtonSelectionTargetActive = false;
@@ -119,6 +120,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     private void OnDisable()
     {
         EndGizmoDrag();
+        PhysicsDrawingEndpointHandle.EndRayDrag(PlaceableMultiGrabCoordinator.MXInkSourceId);
         PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.MXInkSourceId);
         HideEndMarker();
         RearButtonSelectionTargetActive = false;
@@ -256,13 +258,15 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                 out var hit,
                 out var placeable,
                 out var gizmoPart,
-                out var drawing))
+                out var drawing,
+                out var endpointHandle))
         {
             pointerState.HasHit = true;
             pointerState.Hit = hit;
             pointerState.HoveredShape = placeable;
             pointerState.HoveredGizmoPart = gizmoPart;
             pointerState.HoveredDrawing = drawing;
+            pointerState.HoveredDrawingEndpoint = endpointHandle;
         }
 
         var rearButtonPressed = _stylusHandler != null && _stylusHandler.CurrentState.cluster_back_value;
@@ -280,10 +284,14 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                                           || pointerState.HoveredShape != null
                                           || pointerState.HoveredGizmoPart != null
                                           || pointerState.HoveredDrawing != null
+                                          || pointerState.HoveredDrawingEndpoint != null
                                           || _stylusGizmoDragging
                                           || selectionExists
                                           || _rearButtonSelectionLatch;
-        FrontButtonShapeGrabTargetActive = ResolvePlaceableGrabTarget(pointerState) != null
+        FrontButtonShapeGrabTargetActive = pointerState.HoveredDrawingEndpoint != null
+                                           || PhysicsDrawingEndpointHandle.IsSourceRayDragging(
+                                               PlaceableMultiGrabCoordinator.MXInkSourceId)
+                                           || ResolvePlaceableGrabTarget(pointerState) != null
                                            || ResolvePhysicsDrawingGrabTarget(pointerState) != null
                                            || PlaceableMultiGrabCoordinator.IsSourceGrabbing(
                                                PlaceableMultiGrabCoordinator.MXInkSourceId);
@@ -302,7 +310,10 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                               || pointerState.HoveredShape != null
                               || pointerState.HoveredGizmoPart != null
                               || pointerState.HoveredDrawing != null
+                              || pointerState.HoveredDrawingEndpoint != null
                               || isGrabbing
+                              || PhysicsDrawingEndpointHandle.IsSourceRayDragging(
+                                  PlaceableMultiGrabCoordinator.MXInkSourceId)
                               || _stylusGizmoDragging;
         var isVisible = stylusIsVisible && (modeIsVisible || hasManualTarget);
         var useManualLine = isVisible && pointerState.IsUsable && hasManualTarget;
@@ -355,11 +366,11 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         }
 
         var endPoint = pointerState.Origin + pointerState.Direction * Mathf.Max(0.01f, _drawerSelectionRayDistance);
-        if (PlaceableMultiGrabCoordinator.IsSourceGrabbingPhysicsDrawing(PlaceableMultiGrabCoordinator.MXInkSourceId)
-            && pointerState.HasHit
-            && pointerState.HoveredDrawing != null)
+        if (PhysicsDrawingEndpointHandle.TryGetSourceGrabPoint(
+                PlaceableMultiGrabCoordinator.MXInkSourceId,
+                out var endpointGrabPoint))
         {
-            endPoint = pointerState.Hit.point;
+            endPoint = endpointGrabPoint;
         }
         else if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(
                 PlaceableMultiGrabCoordinator.MXInkSourceId,
@@ -383,6 +394,22 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     private bool TryResolveEndMarkerPoint(StylusPointerState pointerState, out Vector3 point)
     {
+        if (PhysicsDrawingEndpointHandle.TryGetSourceGrabPoint(
+                PlaceableMultiGrabCoordinator.MXInkSourceId,
+                out var endpointGrabPoint))
+        {
+            point = endpointGrabPoint;
+            return true;
+        }
+
+        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(
+                PlaceableMultiGrabCoordinator.MXInkSourceId,
+                out var grabPoint))
+        {
+            point = grabPoint;
+            return true;
+        }
+
         if (pointerState.HasUiHit)
         {
             point = pointerState.UiHit.WorldPoint;
@@ -400,14 +427,6 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         if (pointerState.HasHit)
         {
             point = pointerState.Hit.point;
-            return true;
-        }
-
-        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(
-                PlaceableMultiGrabCoordinator.MXInkSourceId,
-                out var grabPoint))
-        {
-            point = grabPoint;
             return true;
         }
 
@@ -512,6 +531,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             && pointerState.HoveredShape == null
             && pointerState.HoveredGizmoPart == null
             && pointerState.HoveredDrawing == null
+            && pointerState.HoveredDrawingEndpoint == null
             && IsSelectionMode())
         {
             drawerItemUnderRay = TrySelectDrawerItemUnderRay();
@@ -522,6 +542,10 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             if (pointerState.HoveredShape != null)
             {
                 AssetSelectionManager.Instance?.SelectAsset(pointerState.HoveredShape);
+            }
+            else if (pointerState.HoveredDrawingEndpoint != null)
+            {
+                AssetSelectionManager.Instance?.SelectPhysicsDrawing(pointerState.HoveredDrawingEndpoint.Owner);
             }
             else if (pointerState.HoveredDrawing != null)
             {
@@ -597,6 +621,27 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         var clusterFrontPressed = _stylusHandler != null && _stylusHandler.CurrentState.cluster_front_value;
         var sourceId = PlaceableMultiGrabCoordinator.MXInkSourceId;
 
+        if (PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId))
+        {
+            if (clusterFrontPressed && pointerState.IsUsable)
+            {
+                PhysicsDrawingEndpointHandle.UpdateRayDrag(
+                    sourceId,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    0f,
+                    _minGrabDistance,
+                    Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            }
+            else
+            {
+                PhysicsDrawingEndpointHandle.EndRayDrag(sourceId);
+            }
+
+            _clusterFrontWasPressed = clusterFrontPressed;
+            return;
+        }
+
         if (PlaceableMultiGrabCoordinator.IsSourceGrabbing(sourceId))
         {
             if (clusterFrontPressed && pointerState.IsUsable)
@@ -619,14 +664,26 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             return;
         }
 
+        var endpointGrabTarget = pointerState.HoveredDrawingEndpoint;
         var placeableGrabTarget = ResolvePlaceableGrabTarget(pointerState);
         var drawingGrabTarget = ResolvePhysicsDrawingGrabTarget(pointerState);
         if (clusterFrontPressed
             && !_clusterFrontWasPressed
             && pointerState.IsUsable
-            && (placeableGrabTarget != null || drawingGrabTarget != null))
+            && (endpointGrabTarget != null || placeableGrabTarget != null || drawingGrabTarget != null))
         {
-            if (placeableGrabTarget != null)
+            if (endpointGrabTarget != null)
+            {
+                PhysicsDrawingEndpointHandle.TryBeginRayDrag(
+                    sourceId,
+                    endpointGrabTarget,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    pointerState.HasHit ? pointerState.Hit.distance : _placeableRayDistance,
+                    _minGrabDistance,
+                    Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            }
+            else if (placeableGrabTarget != null)
             {
                 PlaceableMultiGrabCoordinator.TryBeginGrab(
                     sourceId,
@@ -650,14 +707,27 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                     Mathf.Max(_minGrabDistance, _maxGrabDistance));
             }
 
-            PlaceableMultiGrabCoordinator.UpdateGrab(
-                sourceId,
-                pointerState.Origin,
-                pointerState.Direction,
-                pointerState.Rotation,
-                0f,
-                _minGrabDistance,
-                Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            if (PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId))
+            {
+                PhysicsDrawingEndpointHandle.UpdateRayDrag(
+                    sourceId,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    0f,
+                    _minGrabDistance,
+                    Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            }
+            else
+            {
+                PlaceableMultiGrabCoordinator.UpdateGrab(
+                    sourceId,
+                    pointerState.Origin,
+                    pointerState.Direction,
+                    pointerState.Rotation,
+                    0f,
+                    _minGrabDistance,
+                    Mathf.Max(_minGrabDistance, _maxGrabDistance));
+            }
         }
 
         _clusterFrontWasPressed = clusterFrontPressed;
@@ -733,7 +803,8 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         out RaycastHit firstHit,
         out PlaceableAsset hitPlaceable,
         out GizmoHandlePart hitGizmoPart,
-        out PhysicsDrawingSelectable hitDrawing)
+        out PhysicsDrawingSelectable hitDrawing,
+        out PhysicsDrawingEndpointHandle hitEndpointHandle)
     {
         var length = Mathf.Max(0.01f, maxDistance);
         var hits = Physics.RaycastAll(origin, direction, length, _placeableRaycastMask, QueryTriggerInteraction.Collide);
@@ -743,6 +814,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             hitPlaceable = null;
             hitGizmoPart = null;
             hitDrawing = null;
+            hitEndpointHandle = null;
             return false;
         }
 
@@ -751,6 +823,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         hitPlaceable = null;
         hitGizmoPart = null;
         hitDrawing = null;
+        hitEndpointHandle = null;
 
         foreach (var hit in hits)
         {
@@ -758,6 +831,20 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             if (hitGizmoPart != null)
             {
                 firstHit = hit;
+                return true;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            hitEndpointHandle = hit.collider != null
+                ? hit.collider.GetComponent<PhysicsDrawingEndpointHandle>()
+                : null;
+            if (hitEndpointHandle != null && hitEndpointHandle.IsEditable)
+            {
+                firstHit = hit;
+                hitEndpointHandle.MarkRayHovered();
+                hitDrawing = hitEndpointHandle.Owner;
                 return true;
             }
         }
@@ -1053,6 +1140,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         public PlaceableAsset HoveredShape;
         public GizmoHandlePart HoveredGizmoPart;
         public PhysicsDrawingSelectable HoveredDrawing;
+        public PhysicsDrawingEndpointHandle HoveredDrawingEndpoint;
         public bool HasUiHit;
         public WorldSpaceUiRayPointer.Hit UiHit;
     }

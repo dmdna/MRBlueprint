@@ -8,6 +8,8 @@ public class LineDrawing : MonoBehaviour
     private const float SnappedLineWidthMultiplier = 1.12f;
     private const float ArrowConeLength = 0.03f;
     private const float ArrowConeRadius = 0.009f;
+    private const float DirectStylusGrabBackoff = 0.01f;
+    private const float DirectStylusGrabMaxDistance = 8f;
 
     private List<GameObject> _lines = new List<GameObject>();
     private LineRenderer _currentLine;
@@ -33,6 +35,7 @@ public class LineDrawing : MonoBehaviour
     private Quaternion _grabStartRotation;
     private Vector3[] _originalLinePositions;
     private bool _movingLine = false;
+    private bool _directStylusPhysicsGrab;
     public Color CurrentColor
     {
         get { return _currentColor; }
@@ -85,6 +88,11 @@ public class LineDrawing : MonoBehaviour
         }
 
         ResolveControlModeSource();
+    }
+
+    private void OnDisable()
+    {
+        EndDirectStylusPhysicsGrab();
     }
 
     private void StartNewLine()
@@ -377,6 +385,7 @@ public class LineDrawing : MonoBehaviour
         {
             _highlightedLine = null;
             _movingLine = false;
+            EndDirectStylusPhysicsGrab();
         }
 
         Destroy(lineObject);
@@ -399,6 +408,7 @@ public class LineDrawing : MonoBehaviour
         _lines.Clear();
         _highlightedLine = null;
         _movingLine = false;
+        EndDirectStylusPhysicsGrab();
     }
 
     private void TriggerHaptics()
@@ -411,6 +421,13 @@ public class LineDrawing : MonoBehaviour
 
     void Update()
     {
+        var endpointConsumesStylus = PhysicsDrawingEndpointHandle.HandleDirectStylus(_stylusHandler);
+        if (endpointConsumesStylus)
+        {
+            SuspendDrawingForEndpointEdit();
+            return;
+        }
+
         if (IsSelectionMode())
         {
             SuspendDrawingForSelectionMode();
@@ -485,9 +502,30 @@ public class LineDrawing : MonoBehaviour
             _doubleTapDetected = false;
         }
 
+        if (_directStylusPhysicsGrab)
+        {
+            if (_stylusHandler.CurrentState.cluster_front_value)
+            {
+                UpdateDirectStylusPhysicsGrab();
+            }
+            else
+            {
+                EndDirectStylusPhysicsGrab();
+                if (_highlightedLine != null)
+                {
+                    UnhighlightLine(_highlightedLine);
+                }
+
+                _movingLine = false;
+            }
+
+            return;
+        }
+
         var mxShapeGrabOwnsFrontButton =
             MXInkRayInteractorBinder.FrontButtonShapeGrabTargetActive
-            || PlaceableMultiGrabCoordinator.IsSourceGrabbing(PlaceableMultiGrabCoordinator.MXInkSourceId);
+            || PlaceableMultiGrabCoordinator.IsSourceGrabbing(PlaceableMultiGrabCoordinator.MXInkSourceId)
+            || PhysicsDrawingEndpointHandle.IsSourceRayDragging(PlaceableMultiGrabCoordinator.MXInkSourceId);
         if (mxShapeGrabOwnsFrontButton && _stylusHandler.CurrentState.cluster_front_value)
         {
             if (_highlightedLine != null)
@@ -523,6 +561,11 @@ public class LineDrawing : MonoBehaviour
         }
         if (_stylusHandler.CurrentState.cluster_front_value && !_movingLine)
         {
+            if (TryStartDirectStylusPhysicsGrab())
+            {
+                return;
+            }
+
             _movingLine = true;
             StartGrabbingLine();
         }
@@ -654,8 +697,100 @@ public class LineDrawing : MonoBehaviour
             UnhighlightLine(_highlightedLine, false);
         }
 
+        EndDirectStylusPhysicsGrab();
         _movingLine = false;
         _doubleTapDetected = false;
+    }
+
+    private void SuspendDrawingForEndpointEdit()
+    {
+        if (_isDrawing)
+        {
+            FinalizeCurrentLine();
+            _isDrawing = false;
+        }
+
+        if (_highlightedLine != null)
+        {
+            UnhighlightLine(_highlightedLine, false);
+        }
+
+        EndDirectStylusPhysicsGrab();
+        _movingLine = false;
+        _doubleTapDetected = false;
+    }
+
+    private bool TryStartDirectStylusPhysicsGrab()
+    {
+        if (_highlightedLine == null)
+        {
+            return false;
+        }
+
+        var selectable = _highlightedLine.GetComponent<PhysicsDrawingSelectable>();
+        if (selectable == null || !selectable.SupportsRadiusScaling)
+        {
+            return false;
+        }
+
+        var pose = _stylusHandler.CurrentState.inkingPose;
+        var direction = pose.rotation * Vector3.forward;
+        if (direction.sqrMagnitude <= 0.0001f)
+        {
+            direction = Vector3.forward;
+        }
+
+        direction.Normalize();
+        var grabStarted = PlaceableMultiGrabCoordinator.TryBeginGrab(
+            PlaceableMultiGrabCoordinator.DirectStylusSourceId,
+            selectable,
+            pose.position - direction * DirectStylusGrabBackoff,
+            direction,
+            pose.rotation,
+            DirectStylusGrabBackoff,
+            DirectStylusGrabBackoff,
+            DirectStylusGrabMaxDistance);
+
+        if (!grabStarted)
+        {
+            return false;
+        }
+
+        _directStylusPhysicsGrab = true;
+        _movingLine = true;
+        ((VrStylusHandler)_stylusHandler).TriggerHapticPulse(1.0f, 0.03f);
+        return true;
+    }
+
+    private void UpdateDirectStylusPhysicsGrab()
+    {
+        var pose = _stylusHandler.CurrentState.inkingPose;
+        var direction = pose.rotation * Vector3.forward;
+        if (direction.sqrMagnitude <= 0.0001f)
+        {
+            direction = Vector3.forward;
+        }
+
+        direction.Normalize();
+        PlaceableMultiGrabCoordinator.UpdateGrab(
+            PlaceableMultiGrabCoordinator.DirectStylusSourceId,
+            pose.position - direction * DirectStylusGrabBackoff,
+            direction,
+            pose.rotation,
+            0f,
+            DirectStylusGrabBackoff,
+            DirectStylusGrabMaxDistance);
+    }
+
+    private void EndDirectStylusPhysicsGrab()
+    {
+        if (!_directStylusPhysicsGrab)
+        {
+            return;
+        }
+
+        PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.DirectStylusSourceId);
+        _directStylusPhysicsGrab = false;
     }
 
     private void StartGrabbingLine()

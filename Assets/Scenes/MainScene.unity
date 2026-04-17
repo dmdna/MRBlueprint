@@ -1052,6 +1052,8 @@ MonoBehaviour:
     m_Bits: 4294967295
   _minGrabDistance: 0.25
   _maxGrabDistance: 8
+  _endMarkerDiameter: 0.025
+  _endMarkerSurfaceOffset: 0.002
 --- !u!1001 &259765908
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -3115,8 +3117,8 @@ MonoBehaviour:
   drawingRayLength: 30
   requireTrackedController: 1
   showBothControllersWhenNoStylus: 1
-  localPositionOffset: {x: 0, y: 0, z: 0}
-  localEulerOffset: {x: 0, y: 0, z: 0}
+  localPositionOffset: {x: 0.01, y: 0, z: 0.06}
+  localEulerOffset: {x: 0, y: 4, z: 0}
   triggerPressThreshold: 0.55
   gripPressThreshold: 0.55
   thumbstickDepthSpeed: 1.2
@@ -3127,7 +3129,8 @@ MonoBehaviour:
   uiCanvasName: PlaceableInspectorCanvas
   uiRayDistance: 8
   fallbackLineWidth: 0.002
-  fallbackLineColor: {r: 1, g: 1, b: 1, a: 1}
+  endMarkerDiameter: 0.025
+  endMarkerSurfaceOffset: 0.002
 --- !u!1 &1107129506
 GameObject:
   m_ObjectHideFlags: 0

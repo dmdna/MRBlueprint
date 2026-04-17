@@ -59,7 +59,10 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private bool _rightGripWasPressed;
     private int _activeGizmoDragSourceId;
 
-    public static bool AnyControllerGrabActive => PlaceableMultiGrabCoordinator.AnyGrabActive;
+    public static bool AnyControllerGrabActive =>
+        PlaceableMultiGrabCoordinator.AnyGrabActive
+        || PhysicsDrawingEndpointHandle.IsSourceRayDragging(PlaceableMultiGrabCoordinator.LeftControllerSourceId)
+        || PhysicsDrawingEndpointHandle.IsSourceRayDragging(PlaceableMultiGrabCoordinator.RightControllerSourceId);
 
     private void Awake()
     {
@@ -84,6 +87,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private void OnDestroy()
     {
         EndControllerGrabs();
+        EndControllerEndpointDrags();
         EndGizmoDrag();
         SetVisible(_leftRay, false);
         SetVisible(_rightRay, false);
@@ -97,6 +101,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private void OnDisable()
     {
         EndControllerGrabs();
+        EndControllerEndpointDrags();
         EndGizmoDrag();
         SetVisible(_leftRay, false);
         SetVisible(_rightRay, false);
@@ -110,8 +115,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             return default;
         }
 
-        var origin = rayOrigin.TransformPoint(localPositionOffset);
-        var rayRotation = rayOrigin.rotation * Quaternion.Euler(localEulerOffset);
+        var origin = rayOrigin.TransformPoint(ResolveLocalPositionOffset(isRightHand));
+        var rayRotation = rayOrigin.rotation * Quaternion.Euler(ResolveLocalEulerOffset(isRightHand));
         var direction = rayRotation * Vector3.forward;
         if (direction.sqrMagnitude < 0.0001f)
         {
@@ -128,6 +133,35 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             Direction = direction,
             Rotation = rayRotation
         };
+        var sourceId = ResolveControllerSourceId(isRightHand);
+
+        if (PlaceableMultiGrabCoordinator.IsSourceDirectGrab(sourceId)
+            || PhysicsDrawingEndpointHandle.IsSourceDirectDragging(sourceId))
+        {
+            pointerState.HasDirectHit = true;
+            pointerState.DirectPoint = origin;
+            pointerState.RayVisible = true;
+            SetDirectMarker(rayState, origin, direction);
+            return pointerState;
+        }
+
+        if (TryGetDirectInteractionHit(origin, ResolveDirectInteractionRadius(), out var directHit))
+        {
+            pointerState.HasDirectHit = true;
+            pointerState.DirectPoint = origin;
+            pointerState.HoveredShape = directHit.Placeable;
+            pointerState.HoveredDrawing = directHit.Drawing;
+            pointerState.HoveredDrawingEndpoint = directHit.EndpointHandle;
+            pointerState.RayVisible = true;
+
+            if (directHit.EndpointHandle != null)
+            {
+                directHit.EndpointHandle.MarkDirectHovered();
+            }
+
+            SetDirectMarker(rayState, origin, direction);
+            return pointerState;
+        }
 
         if (WorldSpaceUiRayPointer.TryGetHit(
                 enableWorldUiPointer,
@@ -137,7 +171,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 Mathf.Max(maxRayDistance, uiRayDistance),
                 out var uiHit))
         {
-            SetLine(rayState, origin, uiHit.WorldPoint);
+            SetLine(rayState, origin, ResolveRayEndPoint(origin, direction, uiHit.Distance));
             pointerState.HasUiHit = true;
             pointerState.UiHit = uiHit;
             pointerState.RayVisible = true;
@@ -155,15 +189,17 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                     out var hitPlaceable,
                     out var hitDrawerItem,
                     out var hitGizmoPart,
-                    out var hitDrawing))
+                    out var hitDrawing,
+                    out var hitEndpointHandle))
             {
-                SetLine(rayState, origin, hit.point);
+                SetLine(rayState, origin, ResolveRayEndPoint(origin, direction, hit.distance));
                 pointerState.HasHit = true;
                 pointerState.Hit = hit;
                 pointerState.HoveredShape = hitPlaceable;
                 pointerState.HoveredDrawerItem = hitDrawerItem;
                 pointerState.HoveredGizmoPart = hitGizmoPart;
                 pointerState.HoveredDrawing = hitDrawing;
+                pointerState.HoveredDrawingEndpoint = hitEndpointHandle;
                 pointerState.RayVisible = true;
 
                 if (hitDrawerItem != null && hitGizmoPart == null)
@@ -188,15 +224,20 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 out var drawingPlaceable,
                 out _,
                 out var drawingGizmoPart,
-                out var drawingSelectable)
-            && (drawingPlaceable != null || drawingGizmoPart != null || drawingSelectable != null))
+                out var drawingSelectable,
+                out var drawingEndpointHandle)
+            && (drawingPlaceable != null
+                || drawingGizmoPart != null
+                || drawingSelectable != null
+                || drawingEndpointHandle != null))
         {
-            SetLine(rayState, origin, drawingHit.point);
+            SetLine(rayState, origin, ResolveRayEndPoint(origin, direction, drawingHit.distance));
             pointerState.HasHit = true;
             pointerState.Hit = drawingHit;
             pointerState.HoveredShape = drawingPlaceable;
             pointerState.HoveredGizmoPart = drawingGizmoPart;
             pointerState.HoveredDrawing = drawingSelectable;
+            pointerState.HoveredDrawingEndpoint = drawingEndpointHandle;
             pointerState.RayVisible = true;
             return pointerState;
         }
@@ -213,7 +254,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         out PlaceableAsset hitPlaceable,
         out XRDrawerItem hitDrawerItem,
         out GizmoHandlePart hitGizmoPart,
-        out PhysicsDrawingSelectable hitDrawing)
+        out PhysicsDrawingSelectable hitDrawing,
+        out PhysicsDrawingEndpointHandle hitEndpointHandle)
     {
         var length = Mathf.Max(0.01f, maxDistance);
         var hits = Physics.RaycastAll(origin, direction, length, raycastMask, QueryTriggerInteraction.Collide);
@@ -224,6 +266,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             hitDrawerItem = null;
             hitGizmoPart = null;
             hitDrawing = null;
+            hitEndpointHandle = null;
             return false;
         }
 
@@ -233,6 +276,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         hitDrawerItem = null;
         hitGizmoPart = null;
         hitDrawing = null;
+        hitEndpointHandle = null;
 
         foreach (var hit in hits)
         {
@@ -250,6 +294,20 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             if (hitDrawerItem != null)
             {
                 firstHit = hit;
+                return true;
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            hitEndpointHandle = hit.collider != null
+                ? hit.collider.GetComponent<PhysicsDrawingEndpointHandle>()
+                : null;
+            if (hitEndpointHandle != null && hitEndpointHandle.IsEditable)
+            {
+                firstHit = hit;
+                hitEndpointHandle.MarkRayHovered();
+                hitDrawing = hitEndpointHandle.Owner;
                 return true;
             }
         }
@@ -279,6 +337,132 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         return true;
+    }
+
+    private bool TryGetDirectInteractionHit(
+        Vector3 origin,
+        float radius,
+        out DirectInteractionHit directHit)
+    {
+        directHit = default;
+        radius = Mathf.Max(0.001f, radius);
+        var colliders = Physics.OverlapSphere(origin, radius, raycastMask, QueryTriggerInteraction.Collide);
+        if (colliders == null || colliders.Length == 0)
+        {
+            return false;
+        }
+
+        var nearestDistance = float.MaxValue;
+        for (var i = 0; i < colliders.Length; i++)
+        {
+            var collider = colliders[i];
+            var endpoint = collider != null ? collider.GetComponent<PhysicsDrawingEndpointHandle>() : null;
+            if (endpoint == null || !endpoint.IsEditable)
+            {
+                continue;
+            }
+
+            TrySetDirectHitCandidate(
+                collider,
+                origin,
+                radius,
+                null,
+                endpoint.Owner,
+                endpoint,
+                ref directHit,
+                ref nearestDistance);
+        }
+
+        if (directHit.EndpointHandle != null)
+        {
+            return true;
+        }
+
+        nearestDistance = float.MaxValue;
+        for (var i = 0; i < colliders.Length; i++)
+        {
+            var collider = colliders[i];
+            var drawing = collider != null
+                ? collider.GetComponentInParent<PhysicsDrawingSelectable>()
+                : null;
+            if (drawing == null)
+            {
+                continue;
+            }
+
+            TrySetDirectHitCandidate(
+                collider,
+                origin,
+                radius,
+                null,
+                drawing,
+                null,
+                ref directHit,
+                ref nearestDistance);
+        }
+
+        if (directHit.Drawing != null)
+        {
+            return true;
+        }
+
+        nearestDistance = float.MaxValue;
+        for (var i = 0; i < colliders.Length; i++)
+        {
+            var collider = colliders[i];
+            var placeable = collider != null
+                ? collider.GetComponentInParent<PlaceableAsset>()
+                : null;
+            if (placeable == null)
+            {
+                continue;
+            }
+
+            TrySetDirectHitCandidate(
+                collider,
+                origin,
+                radius,
+                placeable,
+                null,
+                null,
+                ref directHit,
+                ref nearestDistance);
+        }
+
+        return directHit.Placeable != null;
+    }
+
+    private static void TrySetDirectHitCandidate(
+        Collider collider,
+        Vector3 origin,
+        float maxDistance,
+        PlaceableAsset placeable,
+        PhysicsDrawingSelectable drawing,
+        PhysicsDrawingEndpointHandle endpointHandle,
+        ref DirectInteractionHit directHit,
+        ref float nearestDistance)
+    {
+        if (collider == null)
+        {
+            return;
+        }
+
+        var closestPoint = collider.ClosestPoint(origin);
+        var distance = Vector3.Distance(origin, closestPoint);
+        if (distance > maxDistance || distance >= nearestDistance)
+        {
+            return;
+        }
+
+        nearestDistance = distance;
+        directHit = new DirectInteractionHit
+        {
+            Point = closestPoint,
+            Distance = distance,
+            Placeable = placeable,
+            Drawing = drawing,
+            EndpointHandle = endpointHandle
+        };
     }
 
     private static XRDrawerItem ResolveDrawerItem(Collider collider)
@@ -333,7 +517,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         ref bool triggerWasPressed)
     {
         var sourceId = ResolveControllerSourceId(isRightHand);
-        if (PlaceableMultiGrabCoordinator.IsSourceGrabbing(sourceId))
+        if (PlaceableMultiGrabCoordinator.IsSourceGrabbing(sourceId)
+            || PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId))
         {
             triggerWasPressed = ReadTriggerPressed(isRightHand);
             return;
@@ -375,6 +560,10 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             else if (pointerState.HoveredShape != null)
             {
                 AssetSelectionManager.Instance?.SelectAsset(pointerState.HoveredShape);
+            }
+            else if (pointerState.HoveredDrawingEndpoint != null)
+            {
+                AssetSelectionManager.Instance?.SelectPhysicsDrawing(pointerState.HoveredDrawingEndpoint.Owner);
             }
             else if (pointerState.HoveredDrawing != null)
             {
@@ -477,11 +666,40 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         var sourceId = ResolveControllerSourceId(isRightHand);
         var gripPressed = pointerState.IsUsable && ReadGripPressed(isRightHand);
 
+        if (PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId))
+        {
+            if (gripPressed)
+            {
+                if (PhysicsDrawingEndpointHandle.IsSourceDirectDragging(sourceId))
+                {
+                    UpdateEndpointDirectDrag(sourceId, pointerState, rayState);
+                }
+                else
+                {
+                    UpdateEndpointDrag(sourceId, pointerState, rayState, isRightHand);
+                }
+            }
+            else
+            {
+                PhysicsDrawingEndpointHandle.EndRayDrag(sourceId);
+            }
+
+            gripWasPressed = gripPressed;
+            return;
+        }
+
         if (PlaceableMultiGrabCoordinator.IsSourceGrabbing(sourceId))
         {
             if (gripPressed)
             {
-                UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+                if (PlaceableMultiGrabCoordinator.IsSourceDirectGrab(sourceId))
+                {
+                    UpdateDirectGrab(sourceId, pointerState, rayState);
+                }
+                else
+                {
+                    UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+                }
             }
             else
             {
@@ -492,38 +710,81 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             return;
         }
 
+        var endpointGrabTarget = pointerState.HoveredDrawingEndpoint;
         var placeableGrabTarget = ResolvePlaceableGrabTarget(pointerState);
         var drawingGrabTarget = ResolvePhysicsDrawingGrabTarget(pointerState);
         if (gripPressed && !gripWasPressed)
         {
             var grabStarted = false;
-            if (placeableGrabTarget != null)
+            if (endpointGrabTarget != null)
             {
-                grabStarted = PlaceableMultiGrabCoordinator.TryBeginGrab(
-                    sourceId,
-                    placeableGrabTarget,
-                    pointerState.Origin,
-                    pointerState.Direction,
-                    pointerState.HasHit ? pointerState.Hit.distance : selectionRayLength,
-                    minGrabDistance,
-                    Mathf.Max(minGrabDistance, maxGrabDistance));
+                grabStarted = pointerState.HasDirectHit
+                    ? PhysicsDrawingEndpointHandle.TryBeginDirectDrag(
+                        sourceId,
+                        endpointGrabTarget,
+                        pointerState.DirectPoint)
+                    : PhysicsDrawingEndpointHandle.TryBeginRayDrag(
+                        sourceId,
+                        endpointGrabTarget,
+                        pointerState.Origin,
+                        pointerState.Direction,
+                        ResolvePointerHitDistance(pointerState),
+                        minGrabDistance,
+                        Mathf.Max(minGrabDistance, maxGrabDistance));
+            }
+            else if (placeableGrabTarget != null)
+            {
+                grabStarted = pointerState.HasDirectHit
+                    ? PlaceableMultiGrabCoordinator.TryBeginDirectGrab(
+                        sourceId,
+                        placeableGrabTarget,
+                        pointerState.DirectPoint)
+                    : PlaceableMultiGrabCoordinator.TryBeginGrab(
+                        sourceId,
+                        placeableGrabTarget,
+                        pointerState.Origin,
+                        pointerState.Direction,
+                        ResolvePointerHitDistance(pointerState),
+                        minGrabDistance,
+                        Mathf.Max(minGrabDistance, maxGrabDistance));
             }
             else if (drawingGrabTarget != null)
             {
-                grabStarted = PlaceableMultiGrabCoordinator.TryBeginGrab(
-                    sourceId,
-                    drawingGrabTarget,
-                    pointerState.Origin,
-                    pointerState.Direction,
-                    pointerState.Rotation,
-                    pointerState.HasHit ? pointerState.Hit.distance : selectionRayLength,
-                    minGrabDistance,
-                    Mathf.Max(minGrabDistance, maxGrabDistance));
+                grabStarted = pointerState.HasDirectHit
+                    ? PlaceableMultiGrabCoordinator.TryBeginDirectGrab(
+                        sourceId,
+                        drawingGrabTarget,
+                        pointerState.DirectPoint,
+                        pointerState.Rotation)
+                    : PlaceableMultiGrabCoordinator.TryBeginGrab(
+                        sourceId,
+                        drawingGrabTarget,
+                        pointerState.Origin,
+                        pointerState.Direction,
+                        pointerState.Rotation,
+                        ResolvePointerHitDistance(pointerState),
+                        minGrabDistance,
+                        Mathf.Max(minGrabDistance, maxGrabDistance));
             }
 
             if (grabStarted)
             {
-                UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+                if (PhysicsDrawingEndpointHandle.IsSourceDirectDragging(sourceId))
+                {
+                    UpdateEndpointDirectDrag(sourceId, pointerState, rayState);
+                }
+                else if (PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId))
+                {
+                    UpdateEndpointDrag(sourceId, pointerState, rayState, isRightHand);
+                }
+                else if (PlaceableMultiGrabCoordinator.IsSourceDirectGrab(sourceId))
+                {
+                    UpdateDirectGrab(sourceId, pointerState, rayState);
+                }
+                else
+                {
+                    UpdateGrab(sourceId, pointerState, rayState, isRightHand);
+                }
             }
         }
 
@@ -545,6 +806,11 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private static PhysicsDrawingSelectable ResolvePhysicsDrawingGrabTarget(RayPointerState pointerState)
     {
         return pointerState.HoveredDrawing;
+    }
+
+    private float ResolvePointerHitDistance(RayPointerState pointerState)
+    {
+        return pointerState.HasHit ? pointerState.Hit.distance : selectionRayLength;
     }
 
     private bool ReadGripPressed(bool isRightHand)
@@ -603,18 +869,76 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             minGrabDistance,
             Mathf.Max(minGrabDistance, maxGrabDistance));
 
-        if (PlaceableMultiGrabCoordinator.IsSourceGrabbingPhysicsDrawing(sourceId)
-            && pointerState.HasHit
-            && pointerState.HoveredDrawing != null)
+        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabDistance(sourceId, out var grabDistance))
         {
-            SetLine(rayState, pointerState.Origin, pointerState.Hit.point);
+            SetLine(
+                rayState,
+                pointerState.Origin,
+                ResolveRayEndPoint(pointerState.Origin, pointerState.Direction, grabDistance));
+        }
+    }
+
+    private void UpdateDirectGrab(
+        int sourceId,
+        RayPointerState pointerState,
+        ControllerRayState rayState)
+    {
+        if (!pointerState.IsUsable)
+        {
+            PlaceableMultiGrabCoordinator.EndGrab(sourceId);
             return;
         }
 
-        if (PlaceableMultiGrabCoordinator.TryGetSourceGrabPoint(sourceId, out var grabPoint))
+        PlaceableMultiGrabCoordinator.UpdateDirectGrab(
+            sourceId,
+            pointerState.Origin,
+            pointerState.Rotation);
+        SetDirectMarker(rayState, pointerState.Origin, pointerState.Direction);
+    }
+
+    private void UpdateEndpointDrag(
+        int sourceId,
+        RayPointerState pointerState,
+        ControllerRayState rayState,
+        bool isRightHand)
+    {
+        if (!pointerState.IsUsable)
         {
-            SetLine(rayState, pointerState.Origin, grabPoint);
+            PhysicsDrawingEndpointHandle.EndRayDrag(sourceId);
+            return;
         }
+
+        var thumbstickY = ReadThumbstickY(isRightHand);
+        PhysicsDrawingEndpointHandle.UpdateRayDrag(
+            sourceId,
+            pointerState.Origin,
+            pointerState.Direction,
+            thumbstickY * thumbstickDepthSpeed * Time.deltaTime,
+            minGrabDistance,
+            Mathf.Max(minGrabDistance, maxGrabDistance));
+
+        if (PhysicsDrawingEndpointHandle.TryGetSourceGrabDistance(sourceId, out var grabDistance))
+        {
+            SetLine(
+                rayState,
+                pointerState.Origin,
+                ResolveRayEndPoint(pointerState.Origin, pointerState.Direction, grabDistance));
+        }
+    }
+
+    private void UpdateEndpointDirectDrag(
+        int sourceId,
+        RayPointerState pointerState,
+        ControllerRayState rayState)
+    {
+        if (!pointerState.IsUsable)
+        {
+            PhysicsDrawingEndpointHandle.EndRayDrag(sourceId);
+            return;
+        }
+
+        PhysicsDrawingEndpointHandle.UpdateDirectDrag(sourceId, pointerState.Origin);
+        SetDirectMarker(rayState, pointerState.Origin, pointerState.Direction);
     }
 
     private static int ResolveControllerSourceId(bool isRightHand)
@@ -630,6 +954,12 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         PlaceableMultiGrabCoordinator.EndGrab(PlaceableMultiGrabCoordinator.RightControllerSourceId);
     }
 
+    private static void EndControllerEndpointDrags()
+    {
+        PhysicsDrawingEndpointHandle.EndRayDrag(PlaceableMultiGrabCoordinator.LeftControllerSourceId);
+        PhysicsDrawingEndpointHandle.EndRayDrag(PlaceableMultiGrabCoordinator.RightControllerSourceId);
+    }
+
     private XRControlMode ResolveControlMode()
     {
         ResolveControlModeSource();
@@ -639,6 +969,30 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private float ResolveModeRayDistance()
     {
         return ResolveControlMode() == XRControlMode.Selection ? selectionRayLength : drawingRayLength;
+    }
+
+    private Vector3 ResolveLocalPositionOffset(bool isRightHand)
+    {
+        var offset = localPositionOffset;
+        offset.x = Mathf.Abs(offset.x) * (isRightHand ? -1f : 1f);
+        return offset;
+    }
+
+    private Vector3 ResolveLocalEulerOffset(bool isRightHand)
+    {
+        var offset = localEulerOffset;
+        offset.y = Mathf.Abs(offset.y) * (isRightHand ? -1f : 1f);
+        return offset;
+    }
+
+    private float ResolveDirectInteractionRadius()
+    {
+        return Mathf.Max(0.001f, endMarkerDiameter * 0.5f);
+    }
+
+    private static Vector3 ResolveRayEndPoint(Vector3 origin, Vector3 direction, float distance)
+    {
+        return origin + direction * Mathf.Max(0.01f, distance);
     }
 
     private void SetLine(ControllerRayState rayState, Vector3 origin, Vector3 endPoint)
@@ -652,6 +1006,16 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         rayState.Line.SetPosition(1, endPoint);
         SetVisible(rayState, true);
         SetEndMarker(rayState, endPoint, endPoint - origin, showEndMarker);
+    }
+
+    private void SetDirectMarker(ControllerRayState rayState, Vector3 markerCenter, Vector3 direction)
+    {
+        if (rayState.Line != null && rayState.Line.enabled)
+        {
+            rayState.Line.enabled = false;
+        }
+
+        SetEndMarkerCenter(rayState, markerCenter, direction, true);
     }
 
     private static void SetVisible(ControllerRayState rayState, bool isVisible)
@@ -685,7 +1049,32 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         var direction = rayVector.normalized;
-        rayState.EndMarker.position = endPoint - direction * Mathf.Max(0f, endMarkerSurfaceOffset);
+        SetEndMarkerCenter(
+            rayState,
+            endPoint - direction * Mathf.Max(0f, endMarkerSurfaceOffset),
+            direction,
+            true);
+    }
+
+    private void SetEndMarkerCenter(
+        ControllerRayState rayState,
+        Vector3 center,
+        Vector3 direction,
+        bool isVisible)
+    {
+        if (rayState.EndMarker == null)
+        {
+            return;
+        }
+
+        if (!isVisible || direction.sqrMagnitude <= 0.000001f)
+        {
+            rayState.EndMarker.gameObject.SetActive(false);
+            return;
+        }
+
+        direction.Normalize();
+        rayState.EndMarker.position = center;
         rayState.EndMarker.rotation = Quaternion.LookRotation(-direction, Vector3.up);
         rayState.EndMarker.localScale = Vector3.one * Mathf.Max(0.001f, endMarkerDiameter);
         if (!rayState.EndMarker.gameObject.activeSelf)
@@ -1021,6 +1410,15 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         public MeshRenderer EndMarkerRenderer;
     }
 
+    private struct DirectInteractionHit
+    {
+        public Vector3 Point;
+        public float Distance;
+        public PlaceableAsset Placeable;
+        public PhysicsDrawingSelectable Drawing;
+        public PhysicsDrawingEndpointHandle EndpointHandle;
+    }
+
     private struct RayPointerState
     {
         public bool IsUsable;
@@ -1028,12 +1426,15 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         public Vector3 Origin;
         public Vector3 Direction;
         public Quaternion Rotation;
+        public bool HasDirectHit;
+        public Vector3 DirectPoint;
         public bool HasHit;
         public RaycastHit Hit;
         public PlaceableAsset HoveredShape;
         public XRDrawerItem HoveredDrawerItem;
         public GizmoHandlePart HoveredGizmoPart;
         public PhysicsDrawingSelectable HoveredDrawing;
+        public PhysicsDrawingEndpointHandle HoveredDrawingEndpoint;
         public bool HasUiHit;
         public WorldSpaceUiRayPointer.Hit UiHit;
     }
