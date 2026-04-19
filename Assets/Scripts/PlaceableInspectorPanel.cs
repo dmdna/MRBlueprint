@@ -783,8 +783,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         var t = go.AddComponent<Text>();
-        t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
-                 ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+        t.font = MrBlueprintUiFont.GetDefault();
         t.text = value;
         t.fontSize = fontSize;
         t.color = Color.white;

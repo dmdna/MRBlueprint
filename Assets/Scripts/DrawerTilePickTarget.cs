@@ -39,8 +39,7 @@ public class DrawerTilePickTarget : MonoBehaviour
         trt.offsetMax = Vector2.zero;
 
         var text = textGo.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
-                    ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+        text.font = MrBlueprintUiFont.GetDefault();
         text.text = caption;
         text.fontSize = 42;
         text.color = Color.white;
