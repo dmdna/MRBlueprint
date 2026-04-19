@@ -1,0 +1,753 @@
+using System;
+using System.Reflection;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.SceneManagement;
+
+/// <summary>
+/// Editor main toolbar: Phase A3 shell, Phase B actions, Phase C simulate strip; Phase D1–D2 Edit/Draw mode + bars.
+/// </summary>
+public class SandboxEditorToolbarFrame : MonoBehaviour
+{
+    [SerializeField] private XRContentDrawerController drawerController;
+    [SerializeField] private PlaceableTransformGizmo transformGizmo;
+    [SerializeField] private SandboxDrawerHints drawerHints;
+    [SerializeField] private string homeSceneName = "HomeMenu";
+
+    [Header("Canvas (match PlaceableInspectorPanel for Quest vs desktop)")]
+    [SerializeField] private bool useHeadsetAnchoredCanvas;
+    [SerializeField] private Transform headsetPanelAnchor;
+    [SerializeField] private Camera headsetPanelCamera;
+    [SerializeField] private Vector3 headsetPanelLocalPosition = new Vector3(0f, 0.22f, 0.85f);
+    [SerializeField] private Vector3 headsetPanelLocalEuler = new Vector3(-12f, 0f, 0f);
+    [SerializeField] private float headsetPanelWorldScale = 0.0012f;
+    [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(900f, 72f);
+
+    [Header("Layout")]
+    [SerializeField] private float barHeight = 52f;
+    [SerializeField] private int canvasSortOrder = 25;
+    [SerializeField] private float toolbarIconHeight = 34f;
+
+    private GameObject _canvasRoot;
+    private GameObject _optionsOverlayRoot;
+    private GameObject _mainToolbarBar;
+    private GameObject _simToolbarBar;
+    private GameObject _drawToolbarBar;
+    private Button _drawModeToolbarButton;
+    private RawImage _simPauseButtonIcon;
+    private Texture2D _texPause;
+    private Texture2D _texResume;
+    private SandboxSimulationController _simulation;
+    private Text _sessionModeLabelText;
+
+    private void Start()
+    {
+        SandboxEditorModeState.ResetToEditForPlaySession();
+
+        EnsureEventSystem();
+        if (drawerController == null)
+            drawerController = FindFirstObjectByType<XRContentDrawerController>();
+        if (transformGizmo == null)
+            transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>();
+        if (drawerHints == null)
+            drawerHints = FindFirstObjectByType<SandboxDrawerHints>();
+
+        _simulation = GetComponent<SandboxSimulationController>();
+        if (_simulation == null)
+            _simulation = gameObject.AddComponent<SandboxSimulationController>();
+        _simulation.Configure(drawerController, transformGizmo);
+        _simulation.StateChanged += OnSimulationStateChanged;
+
+        BuildUi();
+        BuildOptionsOverlay();
+        _simulation.RefreshAllPlaceablesGravity();
+
+        SandboxEditorModeState.ModeChanged += OnSandboxSessionModeChanged;
+        RefreshSessionModeLabel();
+        RefreshShellBarsVisibility();
+        ApplyDrawModeInteractionPolicy();
+    }
+
+    private void OnDestroy()
+    {
+        SandboxEditorModeState.ModeChanged -= OnSandboxSessionModeChanged;
+
+        if (_simulation != null)
+            _simulation.StateChanged -= OnSimulationStateChanged;
+
+        if (_canvasRoot != null)
+            Destroy(_canvasRoot);
+    }
+
+    private void OnSandboxSessionModeChanged(SandboxEditorSessionMode _)
+    {
+        RefreshSessionModeLabel();
+        RefreshShellBarsVisibility();
+        ApplyDrawModeInteractionPolicy();
+    }
+
+    private void RefreshSessionModeLabel()
+    {
+        if (_sessionModeLabelText == null)
+            return;
+
+        var mode = SandboxEditorModeState.Current;
+        _sessionModeLabelText.text = "Mode: " + SandboxEditorModeState.GetDisplayLabel(mode);
+    }
+
+    private static void EnsureEventSystem()
+    {
+        if (UnityEngine.Object.FindFirstObjectByType<EventSystem>() != null)
+            return;
+
+        var esGo = new GameObject("EventSystem");
+        esGo.AddComponent<EventSystem>();
+        esGo.AddComponent<InputSystemUIInputModule>();
+    }
+
+    private void BuildUi()
+    {
+        var canvasGo = new GameObject("SandboxEditorToolbarCanvas");
+        var canvas = canvasGo.AddComponent<Canvas>();
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = canvasSortOrder;
+        canvasGo.AddComponent<GraphicRaycaster>();
+
+        var scaler = canvasGo.AddComponent<CanvasScaler>();
+        var canvasRect = canvasGo.GetComponent<RectTransform>();
+        canvasRect.anchorMin = Vector2.zero;
+        canvasRect.anchorMax = Vector2.one;
+        canvasRect.offsetMin = Vector2.zero;
+        canvasRect.offsetMax = Vector2.zero;
+
+        if (!useHeadsetAnchoredCanvas)
+        {
+            canvasGo.transform.SetParent(transform, false);
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+        }
+        else
+        {
+            var anchor = headsetPanelAnchor != null ? headsetPanelAnchor : Camera.main != null ? Camera.main.transform : transform;
+            canvasGo.transform.SetParent(anchor, false);
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.worldCamera = headsetPanelCamera != null
+                ? headsetPanelCamera
+                : (anchor.TryGetComponent<Camera>(out var c) ? c : Camera.main);
+
+            canvasRect.sizeDelta = headsetPanelCanvasSize;
+            canvasRect.localPosition = headsetPanelLocalPosition;
+            canvasRect.localRotation = Quaternion.Euler(headsetPanelLocalEuler);
+            canvasRect.localScale = Vector3.one * headsetPanelWorldScale;
+
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+            scaler.dynamicPixelsPerUnit = 10f;
+        }
+
+        _canvasRoot = canvasGo;
+
+        var tooltipHostGo = new GameObject("ToolbarTooltipHost");
+        tooltipHostGo.transform.SetParent(canvasGo.transform, false);
+        var tooltipHost = tooltipHostGo.AddComponent<SandboxEditorToolbarTooltipHost>();
+        tooltipHost.Setup(canvasRect, canvas);
+
+        var bar = new GameObject("ToolbarBar");
+        _mainToolbarBar = bar;
+        bar.transform.SetParent(canvasGo.transform, false);
+        var barRt = bar.AddComponent<RectTransform>();
+        barRt.anchorMin = new Vector2(0f, 1f);
+        barRt.anchorMax = new Vector2(1f, 1f);
+        barRt.pivot = new Vector2(0.5f, 1f);
+        barRt.anchoredPosition = new Vector2(0f, 0f);
+        barRt.sizeDelta = new Vector2(0f, barHeight);
+
+        var barBg = bar.AddComponent<Image>();
+        barBg.color = new Color(0.06f, 0.07f, 0.1f, 0.88f);
+
+        var row = new GameObject("ToolbarRow");
+        row.transform.SetParent(bar.transform, false);
+        var rowRt = row.AddComponent<RectTransform>();
+        rowRt.anchorMin = Vector2.zero;
+        rowRt.anchorMax = Vector2.one;
+        rowRt.offsetMin = new Vector2(8f, 4f);
+        rowRt.offsetMax = new Vector2(-8f, -4f);
+
+        var hlg = row.AddComponent<HorizontalLayoutGroup>();
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.spacing = 6f;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+
+        AddSessionModeLabel(row.transform);
+
+        // Icon files live under Assets/UI (icon_*.png); copies under Resources/UI load in players.
+        var slots = new (string slotId, string iconFileBase, bool wired, UnityEngine.Events.UnityAction onClick, string tooltip)[]
+        {
+            ("Home", "icon_Home", true, OnHomeClicked, "Go to main menu"),
+            ("Draw", "icon_Draw", true, OnDrawClicked,
+                "Draw mode — stylus strokes apply to nearby cubes/spheres: flick → impulse, straight line → spring"),
+            ("Undo", "icon_Undo", false, null, "Undo — coming soon"),
+            ("Options", "icon_Build", true, OnOptionsClicked, "Options"),
+            ("Simulate", "icon_Simulate", true, OnSimulateClicked,
+                "Simulate — run physics with each object’s gravity; exit restores layout from when you started"),
+            ("Drawer", "icon_ContentDrawer", true, OnDrawerClicked, "Open or close the content drawer"),
+            ("Clear", "icon_Trash", true, OnClearSceneClicked, "Remove all placed objects from the scene"),
+            ("Redo", "icon_Redo", false, null, "Redo — coming soon"),
+            ("Help", "icon_Help", true, OnHelpClicked, "Show or hide keyboard / control hints"),
+        };
+
+        for (var i = 0; i < slots.Length; i++)
+        {
+            var (slotId, iconFileBase, wired, onClick, tooltip) = slots[i];
+            AddSlotButton(row.transform, slotId, iconFileBase, wired, onClick, tooltipHost, tooltip);
+        }
+
+        var drawSlot = row.transform.Find("DrawSlot");
+        if (drawSlot != null)
+            _drawModeToolbarButton = drawSlot.GetComponent<Button>();
+
+        BuildSimToolbar(canvasGo.transform, tooltipHost);
+        BuildDrawToolbar(canvasGo.transform, tooltipHost);
+    }
+
+    private void AddSessionModeLabel(Transform row)
+    {
+        var go = new GameObject("SessionModeLabel");
+        go.transform.SetParent(row, false);
+        go.transform.SetAsFirstSibling();
+
+        var le = go.AddComponent<LayoutElement>();
+        le.flexibleWidth = 0f;
+        le.preferredWidth = 132f;
+        le.minWidth = 98f;
+
+        var t = go.AddComponent<Text>();
+        t.font = MrBlueprintUiFont.GetDefault();
+        t.fontSize = 15;
+        t.color = new Color(0.9f, 0.91f, 0.94f, 1f);
+        t.alignment = TextAnchor.MiddleLeft;
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        t.verticalOverflow = VerticalWrapMode.Truncate;
+        _sessionModeLabelText = t;
+
+        var rt = t.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(4f, 0f);
+        rt.offsetMax = Vector2.zero;
+    }
+
+    private static Texture2D TryLoadToolbarIcon(string iconFileBase)
+    {
+        if (string.IsNullOrEmpty(iconFileBase))
+            return null;
+
+#if UNITY_EDITOR
+        return UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>($"Assets/UI/{iconFileBase}.png");
+#else
+        return Resources.Load<Texture2D>($"UI/{iconFileBase}");
+#endif
+    }
+
+    private void BuildSimToolbar(Transform canvasTransform, SandboxEditorToolbarTooltipHost tooltipHost)
+    {
+        _texPause = TryLoadToolbarIcon("icon_Pause");
+        _texResume = TryLoadToolbarIcon("icon_Simulate");
+
+        _simToolbarBar = new GameObject("SimToolbarBar");
+        _simToolbarBar.transform.SetParent(canvasTransform, false);
+        var simBarRt = _simToolbarBar.AddComponent<RectTransform>();
+        simBarRt.anchorMin = new Vector2(0f, 1f);
+        simBarRt.anchorMax = new Vector2(1f, 1f);
+        simBarRt.pivot = new Vector2(0.5f, 1f);
+        simBarRt.anchoredPosition = new Vector2(0f, -barHeight);
+        simBarRt.sizeDelta = new Vector2(0f, barHeight);
+
+        var simBarBg = _simToolbarBar.AddComponent<Image>();
+        simBarBg.color = new Color(0.07f, 0.09f, 0.14f, 0.92f);
+
+        var row = new GameObject("SimToolbarRow");
+        row.transform.SetParent(_simToolbarBar.transform, false);
+        var rowRt = row.AddComponent<RectTransform>();
+        rowRt.anchorMin = Vector2.zero;
+        rowRt.anchorMax = Vector2.one;
+        rowRt.offsetMin = new Vector2(8f, 4f);
+        rowRt.offsetMax = new Vector2(-8f, -4f);
+
+        var hlg = row.AddComponent<HorizontalLayoutGroup>();
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.spacing = 8f;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+
+        AddSlotButton(row.transform, "SimExit", "icon_Stop", true, OnExitSimulationClicked, tooltipHost,
+            "Exit simulation — restore poses from when you started");
+        AddSlotButton(row.transform, "SimPause", "icon_Pause", true, OnTogglePauseClicked, tooltipHost,
+            "Pause or resume physics stepping");
+
+        var pauseSlot = row.transform.Find("SimPauseSlot");
+        if (pauseSlot != null)
+        {
+            var iconTr = pauseSlot.Find("Icon");
+            if (iconTr != null)
+                _simPauseButtonIcon = iconTr.GetComponent<RawImage>();
+        }
+
+        if (_simPauseButtonIcon != null && _texPause != null)
+            _simPauseButtonIcon.texture = _texPause;
+
+        AddSlotButton(row.transform, "SimRestart", "icon_Restart", true, OnRestartSimulationClicked, tooltipHost,
+            "Restart — rewind to sim start and keep running");
+
+        _simToolbarBar.SetActive(false);
+    }
+
+    private void BuildDrawToolbar(Transform canvasTransform, SandboxEditorToolbarTooltipHost tooltipHost)
+    {
+        _drawToolbarBar = new GameObject("DrawToolbarBar");
+        _drawToolbarBar.transform.SetParent(canvasTransform, false);
+        var drawBarRt = _drawToolbarBar.AddComponent<RectTransform>();
+        drawBarRt.anchorMin = new Vector2(0f, 1f);
+        drawBarRt.anchorMax = new Vector2(1f, 1f);
+        drawBarRt.pivot = new Vector2(0.5f, 1f);
+        drawBarRt.anchoredPosition = new Vector2(0f, 0f);
+        drawBarRt.sizeDelta = new Vector2(0f, barHeight);
+
+        var drawBarBg = _drawToolbarBar.AddComponent<Image>();
+        drawBarBg.color = new Color(0.08f, 0.1f, 0.14f, 0.93f);
+
+        var row = new GameObject("DrawToolbarRow");
+        row.transform.SetParent(_drawToolbarBar.transform, false);
+        var rowRt = row.AddComponent<RectTransform>();
+        rowRt.anchorMin = Vector2.zero;
+        rowRt.anchorMax = Vector2.one;
+        rowRt.offsetMin = new Vector2(8f, 4f);
+        rowRt.offsetMax = new Vector2(-8f, -4f);
+
+        var hlg = row.AddComponent<HorizontalLayoutGroup>();
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.spacing = 8f;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+
+        AddSlotButton(row.transform, "Edit", "", true, OnExitDrawClicked, tooltipHost,
+            "Return to edit mode — place objects, drawer, simulate");
+        AddSlotButton(row.transform, "DrawUndoLast", "icon_Scissors", true, OnDrawUndoLastStrokeClicked, tooltipHost,
+            "Remove last stroke (same as stylus line undo when no line is selected)");
+        AddSlotButton(row.transform, "DrawClearAll", "icon_Trash", true, OnDrawClearAllStrokesClicked, tooltipHost,
+            "Clear all drawn strokes");
+
+        _drawToolbarBar.SetActive(false);
+    }
+
+    private void AddSlotButton(Transform parent, string slotId, string iconFileBase, bool wired,
+        UnityEngine.Events.UnityAction onClick, SandboxEditorToolbarTooltipHost tooltipHost, string tooltip)
+    {
+        var go = new GameObject(slotId + "Slot");
+        go.transform.SetParent(parent, false);
+        var le = go.AddComponent<LayoutElement>();
+        le.flexibleWidth = 1f;
+        le.minWidth = 48f;
+
+        var img = go.AddComponent<Image>();
+        img.color = wired
+            ? new Color(0.22f, 0.35f, 0.52f, 0.95f)
+            : new Color(0.18f, 0.18f, 0.22f, 0.65f);
+
+        var btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.interactable = true;
+
+        if (wired && onClick != null)
+            btn.onClick.AddListener(onClick);
+
+        var tex = TryLoadToolbarIcon(iconFileBase);
+        if (tex != null)
+        {
+            var iconGo = new GameObject("Icon");
+            iconGo.transform.SetParent(go.transform, false);
+            var raw = iconGo.AddComponent<RawImage>();
+            raw.texture = tex;
+            raw.raycastTarget = false;
+            raw.color = wired ? Color.white : new Color(1f, 1f, 1f, 0.42f);
+
+            var irt = iconGo.GetComponent<RectTransform>();
+            irt.anchorMin = new Vector2(0.5f, 0.5f);
+            irt.anchorMax = new Vector2(0.5f, 0.5f);
+            irt.pivot = new Vector2(0.5f, 0.5f);
+            var ih = Mathf.Max(8f, toolbarIconHeight);
+            var iw = ih * (tex.width / Mathf.Max(1f, (float)tex.height));
+            irt.sizeDelta = new Vector2(iw, ih);
+            irt.anchoredPosition = Vector2.zero;
+        }
+        else
+        {
+            var txGo = new GameObject("LabelFallback");
+            txGo.transform.SetParent(go.transform, false);
+            var t = txGo.AddComponent<Text>();
+            t.font = MrBlueprintUiFont.GetDefault();
+            t.text = slotId;
+            t.fontSize = wired ? 13 : 12;
+            t.color = wired ? Color.white : new Color(1f, 1f, 1f, 0.45f);
+            t.alignment = TextAnchor.MiddleCenter;
+            t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            t.verticalOverflow = VerticalWrapMode.Truncate;
+
+            var trt = txGo.GetComponent<RectTransform>();
+            trt.anchorMin = Vector2.zero;
+            trt.anchorMax = Vector2.one;
+            trt.offsetMin = new Vector2(2f, 0f);
+            trt.offsetMax = new Vector2(-2f, 0f);
+        }
+
+        if (tooltipHost != null)
+        {
+            var trig = go.AddComponent<SandboxEditorToolbarTooltipTrigger>();
+            trig.Initialize(tooltipHost, go.GetComponent<RectTransform>(), tooltip);
+        }
+    }
+
+    private void BuildOptionsOverlay()
+    {
+        if (_canvasRoot == null)
+            return;
+
+        _optionsOverlayRoot = new GameObject("OptionsOverlay");
+        _optionsOverlayRoot.transform.SetParent(_canvasRoot.transform, false);
+        var ort = _optionsOverlayRoot.AddComponent<RectTransform>();
+        ort.anchorMin = Vector2.zero;
+        ort.anchorMax = Vector2.one;
+        ort.offsetMin = Vector2.zero;
+        ort.offsetMax = Vector2.zero;
+
+        var dim = _optionsOverlayRoot.AddComponent<Image>();
+        dim.color = new Color(0f, 0f, 0f, 0.45f);
+
+        var panel = new GameObject("OptionsPanel");
+        panel.transform.SetParent(_optionsOverlayRoot.transform, false);
+        var prt = panel.AddComponent<RectTransform>();
+        prt.anchorMin = new Vector2(0.5f, 0.5f);
+        prt.anchorMax = new Vector2(0.5f, 0.5f);
+        prt.pivot = new Vector2(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero;
+        prt.sizeDelta = new Vector2(400f, 220f);
+
+        var pbg = panel.AddComponent<Image>();
+        pbg.color = new Color(0.1f, 0.11f, 0.14f, 0.98f);
+
+        var titleGo = new GameObject("Title");
+        titleGo.transform.SetParent(panel.transform, false);
+        var titleRt = titleGo.AddComponent<RectTransform>();
+        titleRt.anchorMin = new Vector2(0f, 1f);
+        titleRt.anchorMax = new Vector2(1f, 1f);
+        titleRt.pivot = new Vector2(0.5f, 1f);
+        titleRt.anchoredPosition = new Vector2(0f, -12f);
+        titleRt.sizeDelta = new Vector2(-24f, 28f);
+        var title = titleGo.AddComponent<Text>();
+        title.font = MrBlueprintUiFont.GetDefault();
+        title.text = "Options";
+        title.fontSize = 20;
+        title.color = Color.white;
+        title.alignment = TextAnchor.MiddleCenter;
+
+        var stubGo = new GameObject("StubNote");
+        stubGo.transform.SetParent(panel.transform, false);
+        var stubRt = stubGo.AddComponent<RectTransform>();
+        stubRt.anchorMin = new Vector2(0f, 0.35f);
+        stubRt.anchorMax = new Vector2(1f, 0.85f);
+        stubRt.offsetMin = new Vector2(16f, 0f);
+        stubRt.offsetMax = new Vector2(-16f, 0f);
+        var stub = stubGo.AddComponent<Text>();
+        stub.font = MrBlueprintUiFont.GetDefault();
+        stub.text = "Placeholder — audio / graphics toggles can go here.";
+        stub.fontSize = 14;
+        stub.color = new Color(0.85f, 0.85f, 0.88f, 1f);
+        stub.alignment = TextAnchor.MiddleCenter;
+        stub.horizontalOverflow = HorizontalWrapMode.Wrap;
+        stub.verticalOverflow = VerticalWrapMode.Overflow;
+
+        var closeGo = new GameObject("Close");
+        closeGo.transform.SetParent(panel.transform, false);
+        var closeRt = closeGo.AddComponent<RectTransform>();
+        closeRt.anchorMin = new Vector2(0.5f, 0f);
+        closeRt.anchorMax = new Vector2(0.5f, 0f);
+        closeRt.pivot = new Vector2(0.5f, 0f);
+        closeRt.anchoredPosition = new Vector2(0f, 16f);
+        closeRt.sizeDelta = new Vector2(160f, 36f);
+        var closeImg = closeGo.AddComponent<Image>();
+        closeImg.color = new Color(0.35f, 0.35f, 0.4f, 1f);
+        var closeBtn = closeGo.AddComponent<Button>();
+        closeBtn.targetGraphic = closeImg;
+        closeBtn.onClick.AddListener(() => SetOptionsVisible(false));
+
+        var closeTxGo = new GameObject("Text");
+        closeTxGo.transform.SetParent(closeGo.transform, false);
+        var closeTx = closeTxGo.AddComponent<Text>();
+        closeTx.font = MrBlueprintUiFont.GetDefault();
+        closeTx.text = "Close";
+        closeTx.fontSize = 15;
+        closeTx.color = Color.white;
+        closeTx.alignment = TextAnchor.MiddleCenter;
+        var closeTxRt = closeTxGo.GetComponent<RectTransform>();
+        closeTxRt.anchorMin = Vector2.zero;
+        closeTxRt.anchorMax = Vector2.one;
+        closeTxRt.offsetMin = Vector2.zero;
+        closeTxRt.offsetMax = Vector2.zero;
+
+        _optionsOverlayRoot.SetActive(false);
+    }
+
+    private void OnSimulationStateChanged()
+    {
+        RefreshShellBarsVisibility();
+        ApplyDrawModeInteractionPolicy();
+    }
+
+    private void RefreshShellBarsVisibility()
+    {
+        var sim = _simulation != null && _simulation.IsSimulating;
+        var draw = SandboxEditorModeState.Current == SandboxEditorSessionMode.Draw;
+
+        if (_mainToolbarBar != null)
+            _mainToolbarBar.SetActive(!sim && !draw);
+
+        if (_simToolbarBar != null)
+            _simToolbarBar.SetActive(sim);
+
+        if (_drawToolbarBar != null)
+            _drawToolbarBar.SetActive(!sim && draw);
+
+        if (_drawModeToolbarButton != null)
+            _drawModeToolbarButton.interactable = !sim;
+
+        UpdatePauseButtonIcon();
+    }
+
+    private void ApplyDrawModeInteractionPolicy()
+    {
+        if (transformGizmo == null)
+            transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>();
+
+        if (transformGizmo == null)
+            return;
+
+        if (SandboxEditorModeState.Current == SandboxEditorSessionMode.Draw)
+        {
+            transformGizmo.enabled = false;
+            return;
+        }
+
+        if (_simulation == null || !_simulation.IsSimulating)
+            transformGizmo.enabled = true;
+    }
+
+    private void OnDrawClicked()
+    {
+        if (_simulation != null && _simulation.IsSimulating)
+            return;
+
+        SetOptionsVisible(false);
+
+        if (drawerController != null && drawerController.IsOpen)
+            drawerController.CloseDrawer();
+
+        if (transformGizmo != null && transformGizmo.IsDragging)
+            transformGizmo.EndDrag();
+
+        SandboxEditorModeState.SetSessionMode(SandboxEditorSessionMode.Draw);
+    }
+
+    private void OnExitDrawClicked()
+    {
+        SandboxEditorModeState.SetSessionMode(SandboxEditorSessionMode.Edit);
+    }
+
+    private static LineDrawing FindLineDrawingOrNull() =>
+        UnityEngine.Object.FindFirstObjectByType<LineDrawing>(FindObjectsInactive.Include);
+
+    private void OnDrawUndoLastStrokeClicked()
+    {
+        if (SandboxEditorModeState.Current != SandboxEditorSessionMode.Draw)
+            return;
+
+        DrawStrokeBridge.TryRemoveLastStroke(FindLineDrawingOrNull());
+    }
+
+    private void OnDrawClearAllStrokesClicked()
+    {
+        if (SandboxEditorModeState.Current != SandboxEditorSessionMode.Draw)
+            return;
+
+        DrawStrokeBridge.TryClearAllStrokes(FindLineDrawingOrNull());
+    }
+
+    private void UpdatePauseButtonIcon()
+    {
+        if (_simPauseButtonIcon == null || _simulation == null)
+            return;
+
+        var tex = _simulation.IsPaused ? (_texResume != null ? _texResume : _texPause) : _texPause;
+        if (tex != null)
+            _simPauseButtonIcon.texture = tex;
+        _simPauseButtonIcon.color = Color.white;
+    }
+
+    private void OnSimulateClicked()
+    {
+        _simulation?.EnterSimulation();
+    }
+
+    private void OnExitSimulationClicked()
+    {
+        _simulation?.ExitSimulation();
+    }
+
+    private void OnTogglePauseClicked()
+    {
+        _simulation?.TogglePause();
+        UpdatePauseButtonIcon();
+    }
+
+    private void OnRestartSimulationClicked()
+    {
+        _simulation?.RestartSimulation();
+        UpdatePauseButtonIcon();
+    }
+
+    private void SetOptionsVisible(bool visible)
+    {
+        if (_optionsOverlayRoot != null)
+            _optionsOverlayRoot.SetActive(visible);
+    }
+
+    private void OnDrawerClicked()
+    {
+        if (drawerController != null)
+            drawerController.ToggleDrawer();
+    }
+
+    private void OnClearSceneClicked()
+    {
+        if (_simulation != null && _simulation.IsSimulating)
+            _simulation.ExitSimulation();
+
+        if (drawerController != null && drawerController.IsOpen)
+            drawerController.CloseDrawer();
+
+        if (transformGizmo != null && transformGizmo.IsDragging)
+            transformGizmo.EndDrag();
+
+        var placeables = FindObjectsByType<PlaceableAsset>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (var i = 0; i < placeables.Length; i++)
+        {
+            var p = placeables[i];
+            if (p == null || p.gameObject == null)
+                continue;
+            if (p.GetComponent<SpawnTemplateMarker>() != null)
+                continue;
+
+            Destroy(p.gameObject);
+        }
+
+        if (AssetSelectionManager.Instance != null)
+            AssetSelectionManager.Instance.ClearSelection();
+    }
+
+    private void OnHomeClicked()
+    {
+        if (string.IsNullOrEmpty(homeSceneName))
+        {
+            Debug.LogError("SandboxEditorToolbarFrame: home scene name is empty.");
+            return;
+        }
+
+        if (_simulation != null && _simulation.IsSimulating)
+            _simulation.ExitSimulation();
+
+        SceneManager.LoadScene(homeSceneName, LoadSceneMode.Single);
+    }
+
+    private void OnHelpClicked()
+    {
+        if (drawerHints == null)
+            drawerHints = FindFirstObjectByType<SandboxDrawerHints>();
+        if (drawerHints == null)
+            return;
+
+        drawerHints.SetHintsVisible(!drawerHints.AreHintsVisible);
+    }
+
+    private void OnOptionsClicked()
+    {
+        var next = _optionsOverlayRoot == null || !_optionsOverlayRoot.activeSelf;
+        SetOptionsVisible(next);
+    }
+
+    /// <summary>Phase D3 — invokes private <see cref="LineDrawing"/> helpers without editing <c>Assets/Logitech</c>.</summary>
+    private static class DrawStrokeBridge
+    {
+        private static readonly MethodInfo RemoveLastLine = typeof(LineDrawing).GetMethod(
+            "RemoveLastLine",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private static readonly MethodInfo ClearAllLines = typeof(LineDrawing).GetMethod(
+            "ClearAllLines",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private static bool _loggedMissing;
+
+        public static void TryRemoveLastStroke(LineDrawing drawing)
+        {
+            if (drawing == null || RemoveLastLine == null)
+            {
+                LogMissingOnce();
+                return;
+            }
+
+            try
+            {
+                RemoveLastLine.Invoke(drawing, null);
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is ArgumentOutOfRangeException or IndexOutOfRangeException)
+            {
+            }
+        }
+
+        public static void TryClearAllStrokes(LineDrawing drawing)
+        {
+            if (drawing == null || ClearAllLines == null)
+            {
+                LogMissingOnce();
+                return;
+            }
+
+            ClearAllLines.Invoke(drawing, null);
+        }
+
+        private static void LogMissingOnce()
+        {
+            if (_loggedMissing)
+                return;
+            _loggedMissing = true;
+            Debug.LogWarning(
+                "DrawStrokeBridge: could not resolve LineDrawing private methods (RemoveLastLine / ClearAllLines). Draw toolbar stroke actions are disabled.");
+        }
+    }
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        if (drawerController == null)
+            drawerController = FindFirstObjectByType<XRContentDrawerController>();
+    }
+#endif
+}

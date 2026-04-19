@@ -54,6 +54,11 @@ public class XRDrawerSpawner : MonoBehaviour
 
         var spawnPos = ResolveSpawnPosition();
         var instance = Instantiate(drawerItem.SpawnPrefab, spawnPos, Quaternion.identity);
+        instance.SetActive(true);
+
+        var templateMarker = instance.GetComponent<SpawnTemplateMarker>();
+        if (templateMarker != null)
+            Destroy(templateMarker);
 
         foreach (var rb in instance.GetComponentsInChildren<Rigidbody>())
         {

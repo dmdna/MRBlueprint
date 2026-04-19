@@ -1,11 +1,21 @@
 using UnityEngine;
 
+/// <summary>Runs <see cref="Start"/> before <see cref="XRDrawerItem"/> so grid positions exist before tiles cache rest pose.</summary>
+[DefaultExecutionOrder(-40)]
 public class DrawerGridLayout3D : MonoBehaviour
 {
+    [SerializeField] private bool layoutOnStart = true;
+
     [SerializeField] private int columns = 3;
     [SerializeField] private float spacingX = 0.3f;
     [SerializeField] private float spacingY = 0.25f;
     [SerializeField] private float zOffset = -0.02f;
+
+    private void Start()
+    {
+        if (layoutOnStart)
+            LayoutChildren();
+    }
 
     [ContextMenu("Layout Children")]
     public void LayoutChildren()
@@ -30,6 +40,10 @@ public class DrawerGridLayout3D : MonoBehaviour
             float z = zOffset;
 
             child.localPosition = new Vector3(x, y, z);
+
+            var drawerItem = child.GetComponent<XRDrawerItem>();
+            if (drawerItem != null)
+                drawerItem.SyncRestPoseFromTransform();
         }
     }
 }

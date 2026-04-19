@@ -9,8 +9,14 @@ public class PlaceableAsset : MonoBehaviour
     [Header("Optional")]
     [SerializeField] private string assetDisplayName = "Asset";
 
+    [Tooltip("Inspector gravity toggle — applied to rigidbody while simulating; in edit mode gravity may be forced off.")]
+    [SerializeField] private bool gravityWhenSimulating = true;
+
     public string AssetDisplayName => assetDisplayName;
     public Rigidbody Rigidbody => rb;
+
+    /// <summary>Used when building placeables from code (e.g. drawer catalog) before user edits the inspector.</summary>
+    public void SetAssetDisplayNameForRuntime(string displayName) => assetDisplayName = displayName;
 
     private void Reset()
     {
@@ -33,6 +39,14 @@ public class PlaceableAsset : MonoBehaviour
         {
             targetRenderers = GetComponentsInChildren<Renderer>();
         }
+
+        if (rb != null)
+            gravityWhenSimulating = rb.useGravity;
+    }
+
+    private void Start()
+    {
+        ApplySandboxGravityPolicy();
     }
 
     private void OnDestroy()
@@ -134,16 +148,43 @@ public class PlaceableAsset : MonoBehaviour
             transform.rotation = q;
     }
 
-    public bool GetUseGravity()
-    {
-        return rb != null && rb.useGravity;
-    }
+    /// <summary>User intent for gravity during simulation (inspector toggle).</summary>
+    public bool GetUseGravity() => gravityWhenSimulating;
 
     public void SetUseGravity(bool useGravity)
     {
-        if (rb != null)
+        gravityWhenSimulating = useGravity;
+        ApplySandboxGravityPolicy();
+    }
+
+    /// <summary>Re-apply edit vs simulate gravity rules (called when sim state changes or object spawns).</summary>
+    public void ApplySandboxGravityPolicy()
+    {
+        if (rb == null)
+            return;
+
+        var sim = SandboxSimulationController.Instance;
+        if (sim == null)
         {
-            rb.useGravity = useGravity;
+            rb.useGravity = gravityWhenSimulating;
+            return;
+        }
+
+        if (sim.IsSimulating && !sim.IsPaused)
+        {
+            rb.useGravity = gravityWhenSimulating;
+        }
+        else if (sim.IsSimulating && sim.IsPaused)
+        {
+            rb.useGravity = gravityWhenSimulating;
+        }
+        else if (!sim.IsSimulating && sim.ZeroGravityInEdit)
+        {
+            rb.useGravity = false;
+        }
+        else
+        {
+            rb.useGravity = gravityWhenSimulating;
         }
     }
 

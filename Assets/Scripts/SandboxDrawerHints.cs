@@ -9,10 +9,21 @@ public class SandboxDrawerHints : MonoBehaviour
     [SerializeField] private string hintText =
         "D — open / close drawer\nClick a tile (Cube / Sphere) to select\nSpace — spawn selected object (drawer must be open)";
 
+    private GameObject _hintsCanvasRoot;
+
+    public bool AreHintsVisible => _hintsCanvasRoot != null && _hintsCanvasRoot.activeSelf;
+
+    public void SetHintsVisible(bool visible)
+    {
+        if (_hintsCanvasRoot != null)
+            _hintsCanvasRoot.SetActive(visible);
+    }
+
     private void Start()
     {
         var canvasGo = new GameObject("SandboxHintsCanvas");
         canvasGo.transform.SetParent(transform, false);
+        _hintsCanvasRoot = canvasGo;
         var canvas = canvasGo.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 5000;
@@ -39,8 +50,7 @@ public class SandboxDrawerHints : MonoBehaviour
         trt.offsetMax = new Vector2(-10f, -8f);
 
         var text = textGo.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
-                    ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+        text.font = MrBlueprintUiFont.GetDefault();
         text.text = hintText;
         text.fontSize = 15;
         text.color = new Color(0.95f, 0.95f, 0.95f, 1f);
