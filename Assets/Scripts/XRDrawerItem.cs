@@ -1,6 +1,8 @@
 using UnityEngine;
 using System.Collections;
 
+/// <summary>Runs <see cref="Start"/> after <see cref="DrawerGridLayout3D"/> so rest pose matches grid positions.</summary>
+[DefaultExecutionOrder(40)]
 public class XRDrawerItem : MonoBehaviour
 {
     [Header("Data")]
@@ -24,11 +26,19 @@ public class XRDrawerItem : MonoBehaviour
 
     public GameObject SpawnPrefab => spawnPrefab;
 
-    private void Start()
+    public void SetSpawnPrefab(GameObject prefab) => spawnPrefab = prefab;
+
+    /// <summary>Call when parent layout changes local transform so idle animation does not snap tiles to origin.</summary>
+    public void SyncRestPoseFromTransform()
     {
         initialLocalPos = transform.localPosition;
         initialLocalRot = transform.localRotation;
         initialLocalScale = transform.localScale;
+    }
+
+    private void Start()
+    {
+        SyncRestPoseFromTransform();
     }
 
     private void Update()

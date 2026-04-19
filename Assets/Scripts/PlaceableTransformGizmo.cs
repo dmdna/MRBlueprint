@@ -131,6 +131,8 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
         if (AssetSelectionManager.Instance != null)
             AssetSelectionManager.Instance.OnSelectionChanged -= OnSelectionChanged;
         EndDragInternal();
+        if (_visualRoot != null)
+            _visualRoot.SetActive(false);
     }
 
     private void RegisterSelectionListener()

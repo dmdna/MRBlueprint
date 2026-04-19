@@ -113,6 +113,8 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         RefreshPhysicsColor();
         RebuildColliders();
         ApplyHighlightState();
+
+        SandboxStrokePlaceablePhysicsApplier.TryApplyFromDrawing(this);
     }
 
     public void SetHovered(bool hovered)

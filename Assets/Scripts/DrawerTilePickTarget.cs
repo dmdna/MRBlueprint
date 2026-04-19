@@ -8,6 +8,9 @@ using UnityEngine.UI;
 public class DrawerTilePickTarget : MonoBehaviour
 {
     [SerializeField] private string caption = "Cube";
+
+    /// <summary>Assign before <see cref="Start"/> when building drawer tiles from code.</summary>
+    public void SetCaptionForRuntime(string value) => caption = value ?? string.Empty;
     [SerializeField] private Vector3 captionLocalOffset = new(0f, -0.12f, 0.02f);
     [SerializeField] private float captionCanvasScale = 0.0035f;
 
