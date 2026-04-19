@@ -14,6 +14,7 @@ public static class PlaceableMultiGrabCoordinator
     private const float MaxScaleFactor = 20f;
 
     private static readonly Dictionary<int, GrabState> ActiveGrabs = new();
+    private static readonly HashSet<PlaceableAsset> ExternalGrabbedPlaceables = new();
     private static readonly List<int> ScratchSourceIds = new();
 
     private static MultiGrabState _multiGrab;
@@ -23,7 +24,7 @@ public static class PlaceableMultiGrabCoordinator
         get
         {
             PruneInvalidGrabs();
-            return ActiveGrabs.Count > 0;
+            return ActiveGrabs.Count > 0 || ExternalGrabbedPlaceables.Count > 0;
         }
     }
 
@@ -71,6 +72,30 @@ public static class PlaceableMultiGrabCoordinator
     {
         PruneInvalidGrabs();
         return ActiveGrabs.TryGetValue(sourceId, out var grab) && grab.IsDirect;
+    }
+
+    public static void NotifyExternalPlaceableGrabStarted(PlaceableAsset placeable)
+    {
+        if (placeable == null)
+        {
+            return;
+        }
+
+        PruneInvalidGrabs();
+        ExternalGrabbedPlaceables.Add(placeable);
+        DetachGrabbedDrawingsAttachedToPlaceable(placeable, 0);
+        RefreshAttachmentPreviews();
+    }
+
+    public static void NotifyExternalPlaceableGrabEnded(PlaceableAsset placeable)
+    {
+        if (placeable == null)
+        {
+            return;
+        }
+
+        ExternalGrabbedPlaceables.Remove(placeable);
+        RefreshAttachmentPreviews();
     }
 
     public static bool TryBeginGrab(
@@ -175,6 +200,7 @@ public static class PlaceableMultiGrabCoordinator
         };
 
         CaptureMultiGrabIfNeeded(target);
+        HandleAttachmentGrabStarted(sourceId, target);
 
         if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.HasSelection)
         {
@@ -229,6 +255,7 @@ public static class PlaceableMultiGrabCoordinator
         };
 
         CaptureMultiGrabIfNeeded(target);
+        HandleAttachmentGrabStarted(sourceId, target);
 
         if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.HasSelection)
         {
@@ -292,6 +319,7 @@ public static class PlaceableMultiGrabCoordinator
             }
 
             ApplyMotion(grab.Target);
+            RefreshAttachmentPreviews();
             return;
         }
 
@@ -310,6 +338,7 @@ public static class PlaceableMultiGrabCoordinator
         }
 
         ApplyMotion(grab.Target);
+        RefreshAttachmentPreviews();
     }
 
     public static void UpdateDirectGrab(int sourceId, Vector3 grabPoint)
@@ -347,6 +376,7 @@ public static class PlaceableMultiGrabCoordinator
         }
 
         ApplyMotion(grab.Target);
+        RefreshAttachmentPreviews();
     }
 
     public static void EndGrab(int sourceId)
@@ -367,10 +397,20 @@ public static class PlaceableMultiGrabCoordinator
             RefreshSourceRotationSnapshotsForTarget(target);
             CaptureMultiGrabIfNeeded(target);
         }
+
+        if (target != null && target.IsDrawing)
+        {
+            CompleteDrawingAttachmentGrab(target.Drawing);
+        }
+        else
+        {
+            RefreshAttachmentPreviews();
+        }
     }
 
     public static void EndAll()
     {
+        ClearAttachmentPreviews();
         ActiveGrabs.Clear();
         _multiGrab = default;
     }
@@ -606,6 +646,199 @@ public static class PlaceableMultiGrabCoordinator
         {
             _multiGrab = default;
         }
+
+        PruneInvalidExternalPlaceables();
+    }
+
+    private static void HandleAttachmentGrabStarted(int sourceId, GrabTarget target)
+    {
+        if (target == null || !target.IsValid)
+        {
+            return;
+        }
+
+        if (target.IsDrawing)
+        {
+            var drawing = target.Drawing;
+            if (drawing != null
+                && drawing.IsAttachedToPlaceable
+                && IsPlaceableGrabbedByDifferentSource(drawing.AttachedPlaceable, sourceId))
+            {
+                drawing.DetachFromPlaceable();
+            }
+        }
+        else if (target.IsPlaceable)
+        {
+            DetachGrabbedDrawingsAttachedToPlaceable(target.Placeable, sourceId);
+        }
+
+        RefreshAttachmentPreviews();
+    }
+
+    private static bool IsPlaceableGrabbedByDifferentSource(PlaceableAsset placeable, int sourceId)
+    {
+        if (placeable == null)
+        {
+            return false;
+        }
+
+        if (ExternalGrabbedPlaceables.Contains(placeable))
+        {
+            return true;
+        }
+
+        foreach (var grab in ActiveGrabs.Values)
+        {
+            if (grab.SourceId == sourceId
+                || grab.Target == null
+                || !grab.Target.IsPlaceable
+                || grab.Target.Placeable != placeable)
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void DetachGrabbedDrawingsAttachedToPlaceable(PlaceableAsset placeable, int sourceId)
+    {
+        if (placeable == null)
+        {
+            return;
+        }
+
+        foreach (var grab in ActiveGrabs.Values)
+        {
+            if (grab.SourceId == sourceId || grab.Target == null || !grab.Target.IsDrawing)
+            {
+                continue;
+            }
+
+            var drawing = grab.Target.Drawing;
+            if (drawing != null && drawing.IsAttachedTo(placeable))
+            {
+                drawing.DetachFromPlaceable();
+            }
+        }
+    }
+
+    private static void RefreshAttachmentPreviews()
+    {
+        foreach (var grab in ActiveGrabs.Values)
+        {
+            if (grab.Target != null && grab.Target.IsDrawing)
+            {
+                UpdateDrawingAttachmentPreview(grab.Target.Drawing);
+            }
+        }
+    }
+
+    private static void UpdateDrawingAttachmentPreview(PhysicsDrawingSelectable drawing)
+    {
+        if (drawing == null)
+        {
+            return;
+        }
+
+        if (!drawing.CanAttachToPlaceable
+            || drawing.IsAttachedToPlaceable
+            || !IsDrawingGrabbed(drawing))
+        {
+            drawing.HideAttachmentPreview();
+            return;
+        }
+
+        if (drawing.TryFindAttachmentCandidate(out var placeable, out var junctionPoint, out _))
+        {
+            drawing.ShowAttachmentPreview(placeable, junctionPoint);
+        }
+        else
+        {
+            drawing.HideAttachmentPreview();
+        }
+    }
+
+    private static void CompleteDrawingAttachmentGrab(PhysicsDrawingSelectable drawing)
+    {
+        if (drawing == null)
+        {
+            return;
+        }
+
+        if (IsDrawingGrabbed(drawing))
+        {
+            UpdateDrawingAttachmentPreview(drawing);
+            return;
+        }
+
+        if (drawing.IsAttachedToPlaceable)
+        {
+            drawing.HideAttachmentPreview();
+            return;
+        }
+
+        if (drawing.TryFindAttachmentCandidate(out var placeable, out _, out var endpoint))
+        {
+            drawing.AttachToPlaceable(placeable, endpoint);
+        }
+        else
+        {
+            drawing.HideAttachmentPreview();
+        }
+    }
+
+    private static bool IsDrawingGrabbed(PhysicsDrawingSelectable drawing)
+    {
+        if (drawing == null)
+        {
+            return false;
+        }
+
+        foreach (var grab in ActiveGrabs.Values)
+        {
+            if (grab.Target != null && grab.Target.Drawing == drawing)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void ClearAttachmentPreviews()
+    {
+        foreach (var grab in ActiveGrabs.Values)
+        {
+            if (grab.Target != null && grab.Target.Drawing != null)
+            {
+                grab.Target.Drawing.HideAttachmentPreview();
+            }
+        }
+    }
+
+    private static void PruneInvalidExternalPlaceables()
+    {
+        if (ExternalGrabbedPlaceables.Count == 0)
+        {
+            return;
+        }
+
+        var stale = new List<PlaceableAsset>();
+        foreach (var placeable in ExternalGrabbedPlaceables)
+        {
+            if (placeable == null)
+            {
+                stale.Add(placeable);
+            }
+        }
+
+        for (var i = 0; i < stale.Count; i++)
+        {
+            ExternalGrabbedPlaceables.Remove(stale[i]);
+        }
     }
 
     private sealed class GrabState
@@ -650,7 +883,10 @@ public static class PlaceableMultiGrabCoordinator
         }
 
         public bool IsValid => _placeable != null || _drawing != null;
+        public bool IsPlaceable => _placeable != null;
         public bool IsDrawing => _drawing != null;
+        public PlaceableAsset Placeable => _placeable;
+        public PhysicsDrawingSelectable Drawing => _drawing;
         public bool SupportsScale => _placeable != null || SupportsWorldLineScaling;
         public bool SupportsWorldLineScaling => _drawing != null && _drawing.SupportsRadiusScaling;
         public bool SupportsSourceRotation => _drawing != null;
@@ -703,6 +939,11 @@ public static class PlaceableMultiGrabCoordinator
 
         public void SetWorldLinePositions(IReadOnlyList<Vector3> positions)
         {
+            if (_drawing != null && _drawing.TrySetAttachedGroupWorldLinePositions(positions))
+            {
+                return;
+            }
+
             _drawing?.SetWorldLinePositions(positions);
         }
 
@@ -745,6 +986,11 @@ public static class PlaceableMultiGrabCoordinator
                 }
 
                 _placeable.SetPosition(targetPosition);
+                return;
+            }
+
+            if (_drawing != null && _drawing.TryMoveAttachedGroupToGrabPosition(targetPosition))
+            {
                 return;
             }
 

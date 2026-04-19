@@ -728,7 +728,7 @@ public class LineDrawing : MonoBehaviour
         }
 
         var selectable = _highlightedLine.GetComponent<PhysicsDrawingSelectable>();
-        if (selectable == null || !selectable.SupportsRadiusScaling)
+        if (selectable == null)
         {
             return false;
         }

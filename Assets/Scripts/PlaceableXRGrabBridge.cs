@@ -21,16 +21,35 @@ public sealed class PlaceableXRGrabBridge : MonoBehaviour
     private void OnEnable()
     {
         _grab.selectEntered.AddListener(OnSelectEntered);
+        _grab.selectExited.AddListener(OnSelectExited);
     }
 
     private void OnDisable()
     {
         _grab.selectEntered.RemoveListener(OnSelectEntered);
+        _grab.selectExited.RemoveListener(OnSelectExited);
+        if (_placeable != null)
+        {
+            PlaceableMultiGrabCoordinator.NotifyExternalPlaceableGrabEnded(_placeable);
+        }
     }
 
     private void OnSelectEntered(SelectEnterEventArgs args)
     {
+        if (_placeable != null)
+        {
+            PlaceableMultiGrabCoordinator.NotifyExternalPlaceableGrabStarted(_placeable);
+        }
+
         if (_placeable != null && AssetSelectionManager.Instance != null)
             AssetSelectionManager.Instance.SelectAsset(_placeable);
+    }
+
+    private void OnSelectExited(SelectExitEventArgs args)
+    {
+        if (_placeable != null)
+        {
+            PlaceableMultiGrabCoordinator.NotifyExternalPlaceableGrabEnded(_placeable);
+        }
     }
 }
