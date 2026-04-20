@@ -25,6 +25,14 @@ public static class PhysicsInsightGenerator
             return "Object is at rest.";
         }
 
+        if (latestImpact.IsValid
+            && config != null
+            && latestImpact.Restitution > 0.05f
+            && Time.time - latestImpact.Time <= 0.45f)
+        {
+            return "Restitution is reflecting the impact.";
+        }
+
         if (latestImpact.IsValid && config != null && Time.time - latestImpact.Time <= 0.35f)
             return "Recent impact is driving the motion.";
 
@@ -76,6 +84,13 @@ public static class PhysicsInsightGenerator
         if (latestImpact.IsValid && config != null)
         {
             var age = Time.time - latestImpact.Time;
+            if (age <= config.RecentImpactSeconds && latestImpact.Restitution > 0.05f)
+            {
+                return "Bounce: e " + latestImpact.Restitution.ToString("0.00")
+                       + ", " + latestImpact.ImpulseMagnitude.ToString("0.0")
+                       + " N·s, " + age.ToString("0.0") + "s ago";
+            }
+
             if (age <= config.RecentImpactSeconds)
                 return "Impact: " + latestImpact.ImpulseMagnitude.ToString("0.0") + " N·s, " + age.ToString("0.0") + "s ago";
         }

@@ -38,6 +38,7 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
     private Transform _fallbackFloorTransform;
     private Renderer _fallbackFloorRenderer;
     private Material _fallbackFloorMaterial;
+    private PhysicsMaterial _surfacePhysicsMaterial;
     private int _physicsSurfaceLayer;
 
     public float FallbackFloorY => fallbackFloorY;
@@ -75,6 +76,11 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
         if (_fallbackFloorMaterial != null)
         {
             Destroy(_fallbackFloorMaterial);
+        }
+
+        if (_surfacePhysicsMaterial != null)
+        {
+            Destroy(_surfacePhysicsMaterial);
         }
 
         foreach (var pair in _effectMeshRuntimeMaterials)
@@ -154,6 +160,11 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
                 {
                     generated.effectMeshGO.layer = _physicsSurfaceLayer;
                     ConfigureEffectMeshRenderer(generated.effectMeshGO.GetComponent<Renderer>());
+                }
+
+                if (generated?.collider != null)
+                {
+                    ConfigureSurfaceCollider(generated.collider);
                 }
             }
         }
@@ -319,6 +330,7 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
         if (collider != null)
         {
             collider.isTrigger = false;
+            ConfigureSurfaceCollider(collider);
         }
 
         ConfigureFallbackMaterial();
@@ -396,6 +408,35 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
         material.EnableKeyword("_ALPHABLEND_ON");
 
         return material;
+    }
+
+    private void ConfigureSurfaceCollider(Collider collider)
+    {
+        if (collider == null || collider.isTrigger)
+        {
+            return;
+        }
+
+        collider.sharedMaterial = GetOrCreateSurfacePhysicsMaterial();
+    }
+
+    private PhysicsMaterial GetOrCreateSurfacePhysicsMaterial()
+    {
+        if (_surfacePhysicsMaterial != null)
+        {
+            return _surfacePhysicsMaterial;
+        }
+
+        _surfacePhysicsMaterial = new PhysicsMaterial("EffectMeshObjectControlledSurface")
+        {
+            dynamicFriction = 1.25f,
+            staticFriction = 1.5f,
+            bounciness = 0f,
+            frictionCombine = PhysicsMaterialCombine.Minimum,
+            bounceCombine = PhysicsMaterialCombine.Maximum
+        };
+
+        return _surfacePhysicsMaterial;
     }
 
     private void ApplyFallbackFloorPose()
