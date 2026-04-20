@@ -9,20 +9,41 @@ using UnityEngine.UI;
 /// </summary>
 public class HomeMenuController : MonoBehaviour
 {
-    [SerializeField] private string editorSceneName = "SkySandbox";
+    [SerializeField] private string editorSceneName = "MainScene";
+    [SerializeField] private float menuDistance = 1.35f;
+    [SerializeField] private float minimumMenuHeight = 1.35f;
+    [SerializeField] private float menuVerticalOffset;
+    [SerializeField] private float menuWorldScale = 0.0015f;
+    [SerializeField] private Vector2 menuCanvasSize = new Vector2(900f, 620f);
+    [SerializeField] private int trackedPlacementFrames = 12;
 
     private GameObject _creditsRoot;
+    private Canvas _canvas;
+    private RectTransform _canvasRect;
+    private int _pendingPlacementFrames;
 
     private void Awake()
     {
         EnsureMainCamera();
         EnsureEventSystem();
+        EnsureControllerRays();
         BuildUi();
+        _pendingPlacementFrames = Mathf.Max(1, trackedPlacementFrames);
+        PositionMenuInFrontOfCamera();
+    }
+
+    private void LateUpdate()
+    {
+        if (_pendingPlacementFrames <= 0)
+            return;
+
+        PositionMenuInFrontOfCamera();
+        _pendingPlacementFrames--;
     }
 
     private static void EnsureMainCamera()
     {
-        if (Camera.main != null)
+        if (ResolveMenuCamera() != null)
             return;
 
         var camGo = new GameObject("Main Camera");
@@ -48,12 +69,19 @@ public class HomeMenuController : MonoBehaviour
         var canvasGo = new GameObject("HomeMenuCanvas");
         canvasGo.transform.SetParent(transform, false);
         var canvas = canvasGo.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        _canvas = canvas;
+        _canvasRect = canvasGo.GetComponent<RectTransform>();
+
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = ResolveMenuCamera();
         canvas.sortingOrder = 0;
         var scaler = canvasGo.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        scaler.dynamicPixelsPerUnit = 10f;
         canvasGo.AddComponent<GraphicRaycaster>();
+
+        _canvasRect.sizeDelta = menuCanvasSize;
+        _canvasRect.localScale = Vector3.one * Mathf.Max(0.0001f, menuWorldScale);
 
         var font = MrBlueprintUiFont.GetDefault();
 
@@ -100,6 +128,70 @@ public class HomeMenuController : MonoBehaviour
 
         _creditsRoot = BuildCreditsPanel(canvasGo.transform, font);
         _creditsRoot.SetActive(false);
+    }
+
+    private void EnsureControllerRays()
+    {
+        if (Object.FindFirstObjectByType<NonStylusControllerRayVisuals>(FindObjectsInactive.Include) != null)
+            return;
+
+        var raysGo = new GameObject("NonStylusControllerRayVisuals");
+        raysGo.transform.SetParent(transform, false);
+        raysGo.AddComponent<NonStylusControllerRayVisuals>();
+    }
+
+    private void PositionMenuInFrontOfCamera()
+    {
+        if (_canvasRect == null)
+            return;
+
+        var cam = ResolveMenuCamera();
+        if (_canvas != null)
+        {
+            _canvas.worldCamera = cam;
+        }
+
+        var anchorPosition = cam != null ? cam.transform.position : transform.position + Vector3.up * minimumMenuHeight;
+        anchorPosition.y = Mathf.Max(anchorPosition.y, minimumMenuHeight);
+        var forward = cam != null ? cam.transform.forward : transform.forward;
+        var flatForward = Vector3.ProjectOnPlane(forward, Vector3.up);
+        if (flatForward.sqrMagnitude <= 0.0001f)
+        {
+            flatForward = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+        }
+
+        if (flatForward.sqrMagnitude <= 0.0001f)
+        {
+            flatForward = Vector3.forward;
+        }
+
+        flatForward.Normalize();
+        _canvasRect.position = anchorPosition + flatForward * Mathf.Max(0.25f, menuDistance)
+                                                 + Vector3.up * menuVerticalOffset;
+        _canvasRect.rotation = Quaternion.LookRotation(flatForward, Vector3.up);
+        _canvasRect.localScale = Vector3.one * Mathf.Max(0.0001f, menuWorldScale);
+    }
+
+    private static Camera ResolveMenuCamera()
+    {
+        var main = Camera.main;
+        if (main != null && main.isActiveAndEnabled)
+            return main;
+
+        var cameras = Object.FindObjectsByType<Camera>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (var camera in cameras)
+        {
+            if (camera != null && camera.isActiveAndEnabled && camera.name == "CenterEyeAnchor")
+                return camera;
+        }
+
+        foreach (var camera in cameras)
+        {
+            if (camera != null && camera.isActiveAndEnabled)
+                return camera;
+        }
+
+        return main;
     }
 
     private static Texture2D TryLoadLogoTexture()
@@ -172,7 +264,7 @@ public class HomeMenuController : MonoBehaviour
         body.font = font;
         body.fontSize = 20;
         body.color = new Color(0.9f, 0.9f, 0.92f);
-        body.text = "MR Blueprint\nLogitech Hackathon\n\nTeam credits and attribution go here.";
+        body.text = "MR Blueprint\nDevStudio 2026 by Logitech\n\nSkylar Knight\nDiego Medina Molina\nVishnu Sai Vardhan Bodapati";
         body.alignment = TextAnchor.MiddleCenter;
         var bodyRt = bodyGo.GetComponent<RectTransform>();
         bodyRt.anchorMin = new Vector2(0f, 0.2f);

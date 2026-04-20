@@ -25,7 +25,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     [Header("Placeable and UI Pointer")]
     [SerializeField] private bool _enableWorldUiPointer = true;
-    [SerializeField] private string _uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas";
+    [SerializeField] private string _uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas;HomeMenuCanvas";
     [SerializeField] private float _uiRayDistance = 8f;
     [SerializeField] private float _placeableRayDistance = 8f;
     [SerializeField] private LayerMask _placeableRaycastMask = ~0;
@@ -57,6 +57,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     private void Awake()
     {
+        EnsureHomeMenuCanvasFilter();
         _rayInteractor = GetComponent<XRRayInteractor>();
         _lineRenderer = GetComponent<LineRenderer>();
 
@@ -911,6 +912,30 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         }
 
         _transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>(FindObjectsInactive.Include);
+    }
+
+    private void EnsureHomeMenuCanvasFilter()
+    {
+        _uiCanvasName = IncludeCanvasName(_uiCanvasName, "HomeMenuCanvas");
+    }
+
+    private static string IncludeCanvasName(string canvasNames, string requiredCanvasName)
+    {
+        if (string.IsNullOrWhiteSpace(canvasNames))
+        {
+            return requiredCanvasName;
+        }
+
+        var names = canvasNames.Split(new[] { ';', ',', '|' }, System.StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (string.Equals(names[i].Trim(), requiredCanvasName, System.StringComparison.Ordinal))
+            {
+                return canvasNames;
+            }
+        }
+
+        return canvasNames.TrimEnd(';', ',', '|', ' ') + ";" + requiredCanvasName;
     }
 
     private Camera ResolveTransformGizmoCamera()

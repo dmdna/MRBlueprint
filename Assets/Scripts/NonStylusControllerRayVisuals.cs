@@ -34,7 +34,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     [Header("UI Pointer")]
     [SerializeField] private bool enableWorldUiPointer = true;
-    [SerializeField] private string uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas";
+    [SerializeField] private string uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas;HomeMenuCanvas";
     [SerializeField] private float uiRayDistance = 8f;
 
     [Header("Fallback Line Style")]
@@ -68,6 +68,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     private void Awake()
     {
+        EnsureHomeMenuCanvasFilter();
         ResolveReferences();
         EnsureRay(ref _leftRay, "LeftControllerRayVisual");
         EnsureRay(ref _rightRay, "RightControllerRayVisual");
@@ -1352,6 +1353,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     private void ResolveReferences()
     {
+        ResolveControllerRayOrigins();
         ResolveControlModeSource();
         ResolveDrawerItemSelection();
         ResolveTransformGizmo();
@@ -1359,6 +1361,19 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         if (stylusHandler == null)
         {
             stylusHandler = FindFirstObjectByType<VrStylusHandler>(FindObjectsInactive.Include);
+        }
+    }
+
+    private void ResolveControllerRayOrigins()
+    {
+        if (leftControllerRayOrigin == null)
+        {
+            leftControllerRayOrigin = FindTransformByName("LeftControllerAnchor");
+        }
+
+        if (rightControllerRayOrigin == null)
+        {
+            rightControllerRayOrigin = FindTransformByName("RightControllerAnchor");
         }
     }
 
@@ -1384,6 +1399,44 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         {
             transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>(FindObjectsInactive.Include);
         }
+    }
+
+    private void EnsureHomeMenuCanvasFilter()
+    {
+        uiCanvasName = IncludeCanvasName(uiCanvasName, "HomeMenuCanvas");
+    }
+
+    private static string IncludeCanvasName(string canvasNames, string requiredCanvasName)
+    {
+        if (string.IsNullOrWhiteSpace(canvasNames))
+        {
+            return requiredCanvasName;
+        }
+
+        var names = canvasNames.Split(new[] { ';', ',', '|' }, System.StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (string.Equals(names[i].Trim(), requiredCanvasName, System.StringComparison.Ordinal))
+            {
+                return canvasNames;
+            }
+        }
+
+        return canvasNames.TrimEnd(';', ',', '|', ' ') + ";" + requiredCanvasName;
+    }
+
+    private static Transform FindTransformByName(string objectName)
+    {
+        var transforms = FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (var transform in transforms)
+        {
+            if (transform != null && transform.name == objectName)
+            {
+                return transform;
+            }
+        }
+
+        return null;
     }
 
     private Camera ResolveTransformGizmoCamera()
