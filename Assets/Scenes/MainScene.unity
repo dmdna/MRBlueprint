@@ -1044,7 +1044,7 @@ MonoBehaviour:
   _localPositionOffset: {x: 0, y: -0.2, z: 0}
   _localEulerOffset: {x: 90, y: 0, z: 0}
   _enableWorldUiPointer: 1
-  _uiCanvasName: PlaceableInspectorCanvas
+  _uiCanvasName: PlaceableInspectorCanvas;SandboxEditorToolbarCanvas
   _uiRayDistance: 8
   _placeableRayDistance: 8
   _placeableRaycastMask:
@@ -2814,9 +2814,11 @@ GameObject:
   - component: {fileID: 888800006}
   - component: {fileID: 888800007}
   - component: {fileID: 888800008}
+  - component: {fileID: 888800009}
   - component: {fileID: 888800010}
   - component: {fileID: 888800011}
   - component: {fileID: 888800012}
+  - component: {fileID: 888800013}
   m_Layer: 0
   m_Name: SandboxMvp
   m_TagString: Untagged
@@ -2904,6 +2906,7 @@ MonoBehaviour:
   drawerController: {fileID: 395236580}
   drawerItemSelection: {fileID: 888800005}
   transformGizmo: {fileID: 888800010}
+  toolbarFrame: {fileID: 888800013}
   maxRayDistance: 100
   raycastMask:
     serializedVersion: 2
@@ -2948,6 +2951,20 @@ MonoBehaviour:
   headsetPanelLocalEuler: {x: 0, y: 0, z: 0}
   headsetPanelWorldScale: 0.0015
   headsetPanelCanvasSize: {x: 320, y: 456}
+--- !u!114 &888800009
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 888800001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c3d4e5f60718293a4b5c6d7e8f901235, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SandboxDrawerHints
+  hintText: "D \u2014 open / close drawer\nClick a tile (Cube / Sphere) to select\nSpace
+    \u2014 spawn selected object (drawer open)"
 --- !u!114 &888800010
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2999,6 +3016,34 @@ MonoBehaviour:
   m_Script: {fileID: 0}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SelectedObjectBoundsOutline
+--- !u!114 &888800013
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 888800001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8c9d0e1f2a3456789abcdef01234567, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SandboxEditorToolbarFrame
+  drawerController: {fileID: 395236580}
+  transformGizmo: {fileID: 888800010}
+  drawerHints: {fileID: 888800009}
+  homeSceneName: HomeMenu
+  useHeadsetAnchoredCanvas: 1
+  headsetPanelAnchor: {fileID: 62082202}
+  headsetPanelCamera: {fileID: 62082203}
+  headsetPanelLocalPosition: {x: 0, y: 0, z: 0.95}
+  headsetPanelLocalEuler: {x: 0, y: 0, z: 0}
+  headsetPanelWorldScale: 0.0012
+  headsetPanelCanvasSize: {x: 900, y: 620}
+  barHeight: 52
+  canvasSortOrder: 25
+  toolbarIconHeight: 34
+  startVisible: 0
+  toolbarAtBottom: 1
 --- !u!1 &990881001
 GameObject:
   m_ObjectHideFlags: 0
@@ -3126,7 +3171,7 @@ MonoBehaviour:
   minGrabDistance: 0.25
   maxGrabDistance: 8
   enableWorldUiPointer: 1
-  uiCanvasName: PlaceableInspectorCanvas
+  uiCanvasName: PlaceableInspectorCanvas;SandboxEditorToolbarCanvas
   uiRayDistance: 8
   fallbackLineWidth: 0.002
   endMarkerDiameter: 0.025

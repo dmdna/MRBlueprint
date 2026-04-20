@@ -25,7 +25,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     [Header("Placeable and UI Pointer")]
     [SerializeField] private bool _enableWorldUiPointer = true;
-    [SerializeField] private string _uiCanvasName = "PlaceableInspectorCanvas";
+    [SerializeField] private string _uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas";
     [SerializeField] private float _uiRayDistance = 8f;
     [SerializeField] private float _placeableRayDistance = 8f;
     [SerializeField] private LayerMask _placeableRaycastMask = ~0;
@@ -303,9 +303,9 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         var stylusIsVisible = !_hideWhenStylusInactive
                               || _stylusHandler == null
                               || _stylusHandler.IsTrackingStylus;
-        var isSelectionMode = IsSelectionMode();
+        var isEditMode = IsEditMode();
         var isGrabbing = PlaceableMultiGrabCoordinator.IsSourceGrabbing(PlaceableMultiGrabCoordinator.MXInkSourceId);
-        var modeIsVisible = !_hideOutsideSelectionMode || isSelectionMode;
+        var modeIsVisible = !_hideOutsideSelectionMode || isEditMode;
         var hasManualTarget = pointerState.HasUiHit
                               || pointerState.HoveredShape != null
                               || pointerState.HoveredGizmoPart != null
@@ -532,7 +532,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             && pointerState.HoveredGizmoPart == null
             && pointerState.HoveredDrawing == null
             && pointerState.HoveredDrawingEndpoint == null
-            && IsSelectionMode())
+            && IsEditMode())
         {
             drawerItemUnderRay = TrySelectDrawerItemUnderRay();
         }
@@ -690,6 +690,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                     placeableGrabTarget,
                     pointerState.Origin,
                     pointerState.Direction,
+                    pointerState.Rotation,
                     pointerState.HasHit ? pointerState.Hit.distance : _placeableRayDistance,
                     _minGrabDistance,
                     Mathf.Max(_minGrabDistance, _maxGrabDistance));
@@ -876,10 +877,10 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         return true;
     }
 
-    private bool IsSelectionMode()
+    private bool IsEditMode()
     {
         ResolveControlModeSource();
-        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Selection;
+        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Edit;
     }
 
     private void ResolveControlModeSource()

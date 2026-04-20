@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -59,11 +60,6 @@ public static class WorldSpaceUiRayPointer
 
             var worldPoint = ray.GetPoint(distance);
             var screenPoint = RectTransformUtility.WorldToScreenPoint(canvas.worldCamera, worldPoint);
-            if (!RectTransformUtility.RectangleContainsScreenPoint(rect, screenPoint, canvas.worldCamera))
-            {
-                continue;
-            }
-
             var eventData = new PointerEventData(EventSystem.current)
             {
                 position = screenPoint
@@ -156,7 +152,7 @@ public static class WorldSpaceUiRayPointer
     private static void RefreshUiCanvases(string canvasName)
     {
         UiCanvases.Clear();
-        var canvases = Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        var canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
         foreach (var canvas in canvases)
         {
             if (canvas == null)
@@ -164,13 +160,38 @@ public static class WorldSpaceUiRayPointer
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(canvasName) && canvas.name != canvasName)
+            if (!CanvasMatchesFilter(canvas, canvasName))
             {
                 continue;
             }
 
             UiCanvases.Add(canvas);
         }
+    }
+
+    private static bool CanvasMatchesFilter(Canvas canvas, string canvasName)
+    {
+        if (canvas == null)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(canvasName))
+        {
+            return true;
+        }
+
+        var names = canvasName.Split(new[] { ';', ',', '|' }, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < names.Length; i++)
+        {
+            var name = names[i].Trim();
+            if (name == "*" || string.Equals(canvas.name, name, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void EnsurePointerData(ref State state, int pointerId)

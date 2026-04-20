@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Phase C — sandbox simulation: snapshot on enter, exit/restart restore that snapshot, pause toggles <see cref="Physics.autoSimulation"/>.
+/// Phase C — sandbox simulation: snapshot on enter, exit/restart restore that snapshot, pause toggles physics stepping.
 /// While editing (not simulating), optional zero gravity on placeables; during sim, each object's gravity follows inspector preference.
 /// </summary>
 public sealed class SandboxSimulationController : MonoBehaviour
@@ -44,6 +44,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
         }
 
         Instance = this;
+        ApplyPhysicsSimulationState();
     }
 
     private void OnDestroy()
@@ -52,10 +53,10 @@ public sealed class SandboxSimulationController : MonoBehaviour
             return;
 
         Instance = null;
+        SetPhysicsAutoSimulation(true);
 
         if (IsSimulating)
         {
-            Physics.autoSimulation = true;
             if (transformGizmo != null)
                 transformGizmo.enabled = true;
         }
@@ -90,7 +91,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
 
         IsSimulating = true;
         IsPaused = false;
-        Physics.autoSimulation = true;
+        ApplyPhysicsSimulationState();
 
         RefreshAllPlaceablesGravity();
         Notify();
@@ -106,7 +107,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
 
         IsSimulating = false;
         IsPaused = false;
-        Physics.autoSimulation = true;
+        ApplyPhysicsSimulationState();
 
         if (transformGizmo != null)
             transformGizmo.enabled = true;
@@ -121,7 +122,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
             return;
 
         IsPaused = paused;
-        Physics.autoSimulation = !paused;
+        ApplyPhysicsSimulationState();
         Notify();
     }
 
@@ -140,7 +141,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
 
         RestoreSnapshot();
         IsPaused = false;
-        Physics.autoSimulation = true;
+        ApplyPhysicsSimulationState();
         Notify();
     }
 
@@ -187,8 +188,21 @@ public sealed class SandboxSimulationController : MonoBehaviour
             s.Rb.rotation = s.Rot;
             s.Rb.linearVelocity = s.Vel;
             s.Rb.angularVelocity = s.AngVel;
+            s.Rb.transform.SetPositionAndRotation(s.Pos, s.Rot);
         }
+
+        Physics.SyncTransforms();
     }
 
     private void Notify() => StateChanged?.Invoke();
+
+    private void ApplyPhysicsSimulationState()
+    {
+        SetPhysicsAutoSimulation(IsSimulating && !IsPaused);
+    }
+
+    private static void SetPhysicsAutoSimulation(bool enabled)
+    {
+        Physics.simulationMode = enabled ? SimulationMode.FixedUpdate : SimulationMode.Script;
+    }
 }

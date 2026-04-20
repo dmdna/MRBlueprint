@@ -6,7 +6,8 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// Editor-friendly input: raycasts from a camera for drawer tiles and placeable assets,
-/// toggles the content drawer from D or either controller primary button, and confirms spawn with Space.
+/// toggles the content drawer from D, toggles the MR toolbar from either controller primary button,
+/// and confirms spawn with Space.
 /// Placeables: click without moving opens the inspector; drag moves the object in the plane
 /// facing the camera (includes vertical / "into the air" motion, not only along the floor).
 /// When a transform gizmo is present, handles are tried first (move / rotate / scale axes).
@@ -23,6 +24,7 @@ public class SandboxEditorInputRouter : MonoBehaviour
     [SerializeField] private XRContentDrawerController drawerController;
     [SerializeField] private XRDrawerItemSelectionManager drawerItemSelection;
     [SerializeField] private PlaceableTransformGizmo transformGizmo;
+    [SerializeField] private SandboxEditorToolbarFrame toolbarFrame;
     [SerializeField] private float maxRayDistance = 100f;
     [SerializeField] private LayerMask raycastMask = ~0;
 
@@ -42,6 +44,7 @@ public class SandboxEditorInputRouter : MonoBehaviour
     private readonly List<UnityEngine.XR.InputDevice> _xrDevices = new();
     private bool _leftPrimaryWasPressed;
     private bool _rightPrimaryWasPressed;
+    private bool _leftMenuWasPressed;
 
     private void Reset()
     {
@@ -73,8 +76,22 @@ public class SandboxEditorInputRouter : MonoBehaviour
         _leftPrimaryWasPressed = leftPrimaryPressed;
         _rightPrimaryWasPressed = rightPrimaryPressed;
 
-        if (primaryPressedThisFrame && drawerController != null)
-            drawerController.ToggleDrawer();
+        if (primaryPressedThisFrame)
+        {
+            ResolveToolbarFrame();
+            if (toolbarFrame != null)
+                toolbarFrame.ToggleToolbarVisible();
+        }
+
+        var leftMenuPressed = IsControllerMenuPressed(LeftControllerCharacteristics);
+        if (leftMenuPressed && !_leftMenuWasPressed)
+        {
+            ResolveToolbarFrame();
+            if (toolbarFrame != null)
+                toolbarFrame.ToggleOptionsVisible();
+        }
+
+        _leftMenuWasPressed = leftMenuPressed;
 
         if (Mouse.current == null)
             return;
@@ -223,6 +240,18 @@ public class SandboxEditorInputRouter : MonoBehaviour
 
     private bool IsControllerPrimaryPressed(UnityEngine.XR.InputDeviceCharacteristics characteristics)
     {
+        return IsControllerButtonPressed(characteristics, UnityEngine.XR.CommonUsages.primaryButton);
+    }
+
+    private bool IsControllerMenuPressed(UnityEngine.XR.InputDeviceCharacteristics characteristics)
+    {
+        return IsControllerButtonPressed(characteristics, UnityEngine.XR.CommonUsages.menuButton);
+    }
+
+    private bool IsControllerButtonPressed(
+        UnityEngine.XR.InputDeviceCharacteristics characteristics,
+        UnityEngine.XR.InputFeatureUsage<bool> buttonUsage)
+    {
         _xrDevices.Clear();
         UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(characteristics, _xrDevices);
 
@@ -232,11 +261,21 @@ public class SandboxEditorInputRouter : MonoBehaviour
             if (!device.isValid || IsLogitechStylus(device))
                 continue;
 
-            if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out var pressed) && pressed)
+            if (device.TryGetFeatureValue(buttonUsage, out var pressed) && pressed)
                 return true;
         }
 
         return false;
+    }
+
+    private void ResolveToolbarFrame()
+    {
+        if (toolbarFrame != null)
+        {
+            return;
+        }
+
+        toolbarFrame = FindFirstObjectByType<SandboxEditorToolbarFrame>(FindObjectsInactive.Include);
     }
 
     private static bool IsLogitechStylus(UnityEngine.XR.InputDevice device)

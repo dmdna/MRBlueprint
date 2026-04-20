@@ -15,7 +15,9 @@ public static class PlaceableMultiGrabCoordinator
 
     private static readonly Dictionary<int, GrabState> ActiveGrabs = new();
     private static readonly HashSet<PlaceableAsset> ExternalGrabbedPlaceables = new();
+    private static readonly HashSet<PlaceableAsset> RotationLockedPlaceables = new();
     private static readonly List<int> ScratchSourceIds = new();
+    private static readonly List<PlaceableAsset> ScratchPlaceables = new();
 
     private static MultiGrabState _multiGrab;
 
@@ -74,6 +76,12 @@ public static class PlaceableMultiGrabCoordinator
         return ActiveGrabs.TryGetValue(sourceId, out var grab) && grab.IsDirect;
     }
 
+    public static bool IsPlaceableRotationLocked(PlaceableAsset placeable)
+    {
+        PruneInvalidGrabs();
+        return placeable != null && RotationLockedPlaceables.Contains(placeable);
+    }
+
     public static void NotifyExternalPlaceableGrabStarted(PlaceableAsset placeable)
     {
         if (placeable == null)
@@ -95,6 +103,7 @@ public static class PlaceableMultiGrabCoordinator
         }
 
         ExternalGrabbedPlaceables.Remove(placeable);
+        RotationLockedPlaceables.Remove(placeable);
         RefreshAttachmentPreviews();
     }
 
@@ -114,6 +123,28 @@ public static class PlaceableMultiGrabCoordinator
             direction,
             Quaternion.identity,
             false,
+            hitDistance,
+            minDistance,
+            maxDistance);
+    }
+
+    public static bool TryBeginGrab(
+        int sourceId,
+        PlaceableAsset placeable,
+        Vector3 origin,
+        Vector3 direction,
+        Quaternion sourceRotation,
+        float hitDistance,
+        float minDistance,
+        float maxDistance)
+    {
+        return TryBeginGrab(
+            sourceId,
+            GrabTarget.FromPlaceable(placeable),
+            origin,
+            direction,
+            sourceRotation,
+            true,
             hitDistance,
             minDistance,
             maxDistance);
@@ -156,6 +187,20 @@ public static class PlaceableMultiGrabCoordinator
 
     public static bool TryBeginDirectGrab(
         int sourceId,
+        PlaceableAsset placeable,
+        Vector3 grabPoint,
+        Quaternion sourceRotation)
+    {
+        return TryBeginDirectGrab(
+            sourceId,
+            GrabTarget.FromPlaceable(placeable),
+            grabPoint,
+            sourceRotation,
+            true);
+    }
+
+    public static bool TryBeginDirectGrab(
+        int sourceId,
         PhysicsDrawingSelectable drawing,
         Vector3 grabPoint,
         Quaternion sourceRotation)
@@ -183,6 +228,7 @@ public static class PlaceableMultiGrabCoordinator
         EndGrab(sourceId);
 
         var position = ResolvePosition(target);
+        var usesSourceRotation = useSourceRotation && target.SupportsSourceRotation;
         ActiveGrabs[sourceId] = new GrabState
         {
             SourceId = sourceId,
@@ -194,7 +240,10 @@ public static class PlaceableMultiGrabCoordinator
             SourceRotation = sourceRotation,
             InitialSourceRotation = sourceRotation,
             InitialGrabPoint = grabPoint,
-            InitialWorldPositions = useSourceRotation && target.SupportsSourceRotation
+            InitialTargetOffset = position - grabPoint,
+            InitialTargetRotation = target.GetRotation(),
+            UsesSourceRotation = usesSourceRotation,
+            InitialWorldPositions = usesSourceRotation && target.IsDrawing
                 ? target.GetWorldLinePositions()
                 : null
         };
@@ -238,6 +287,7 @@ public static class PlaceableMultiGrabCoordinator
             Mathf.Max(MinGrabDistance, maxDistance));
         var grabPoint = origin + direction * grabDistance;
         var position = ResolvePosition(target);
+        var usesSourceRotation = useSourceRotation && target.SupportsSourceRotation;
 
         ActiveGrabs[sourceId] = new GrabState
         {
@@ -249,7 +299,10 @@ public static class PlaceableMultiGrabCoordinator
             SourceRotation = sourceRotation,
             InitialSourceRotation = sourceRotation,
             InitialGrabPoint = grabPoint,
-            InitialWorldPositions = useSourceRotation && target.SupportsSourceRotation
+            InitialTargetOffset = position - grabPoint,
+            InitialTargetRotation = target.GetRotation(),
+            UsesSourceRotation = usesSourceRotation,
+            InitialWorldPositions = usesSourceRotation && target.IsDrawing
                 ? target.GetWorldLinePositions()
                 : null
         };
@@ -398,6 +451,14 @@ public static class PlaceableMultiGrabCoordinator
             CaptureMultiGrabIfNeeded(target);
         }
 
+        if (target != null
+            && target.IsPlaceable
+            && target.Placeable != null
+            && !IsPlaceableGrabbed(target.Placeable))
+        {
+            RotationLockedPlaceables.Remove(target.Placeable);
+        }
+
         if (target != null && target.IsDrawing)
         {
             CompleteDrawingAttachmentGrab(target.Drawing);
@@ -412,7 +473,61 @@ public static class PlaceableMultiGrabCoordinator
     {
         ClearAttachmentPreviews();
         ActiveGrabs.Clear();
+        RotationLockedPlaceables.Clear();
         _multiGrab = default;
+    }
+
+    public static bool SnapGrabbedPlaceablesUprightPreserveYaw()
+    {
+        PruneInvalidGrabs();
+        var snappedAny = false;
+        var snappedPlaceables = new HashSet<PlaceableAsset>();
+
+        foreach (var grab in ActiveGrabs.Values)
+        {
+            if (grab.Target == null || !grab.Target.IsPlaceable || grab.Target.Placeable == null)
+            {
+                continue;
+            }
+
+            if (!snappedPlaceables.Add(grab.Target.Placeable))
+            {
+                continue;
+            }
+
+            if (!RotationLockedPlaceables.Remove(grab.Target.Placeable))
+            {
+                grab.Target.SnapUprightPreserveYaw();
+                RotationLockedPlaceables.Add(grab.Target.Placeable);
+            }
+
+            RefreshOffsetsForTarget(grab.Target);
+            RefreshSourceRotationSnapshotsForTarget(grab.Target);
+            snappedAny = true;
+        }
+
+        foreach (var placeable in ExternalGrabbedPlaceables)
+        {
+            if (placeable == null || !snappedPlaceables.Add(placeable))
+            {
+                continue;
+            }
+
+            if (!RotationLockedPlaceables.Remove(placeable))
+            {
+                placeable.SnapUprightPreserveYaw();
+                RotationLockedPlaceables.Add(placeable);
+            }
+
+            snappedAny = true;
+        }
+
+        if (snappedAny)
+        {
+            RefreshAttachmentPreviews();
+        }
+
+        return snappedAny;
     }
 
     private static void ApplyMotion(GrabTarget target)
@@ -436,6 +551,14 @@ public static class PlaceableMultiGrabCoordinator
             return;
         }
 
+        if (target.IsPlaceable
+            && target.Placeable != null
+            && RotationLockedPlaceables.Contains(target.Placeable))
+        {
+            MoveTarget(target, first.GrabPoint + first.Offset);
+            return;
+        }
+
         if (target.SupportsSourceRotation && first.HasSourceRotationSnapshot)
         {
             ApplySourceRotationGrab(target, first);
@@ -453,13 +576,21 @@ public static class PlaceableMultiGrabCoordinator
 
     private static void ApplySourceRotationGrab(GrabTarget target, GrabState grab)
     {
+        var rotation = grab.SourceRotation * Quaternion.Inverse(grab.InitialSourceRotation);
+        if (target.IsPlaceable)
+        {
+            target.SetPose(
+                rotation * grab.InitialTargetOffset + grab.GrabPoint,
+                rotation * grab.InitialTargetRotation);
+            return;
+        }
+
         if (grab.InitialWorldPositions == null || grab.InitialWorldPositions.Length == 0)
         {
             MoveTarget(target, grab.GrabPoint + grab.Offset);
             return;
         }
 
-        var rotation = grab.SourceRotation * Quaternion.Inverse(grab.InitialSourceRotation);
         var positions = new Vector3[grab.InitialWorldPositions.Length];
         for (var i = 0; i < positions.Length; i++)
         {
@@ -612,7 +743,11 @@ public static class PlaceableMultiGrabCoordinator
 
             grab.InitialSourceRotation = grab.SourceRotation;
             grab.InitialGrabPoint = grab.GrabPoint;
-            grab.InitialWorldPositions = target.GetWorldLinePositions();
+            grab.InitialTargetOffset = ResolvePosition(target) - grab.GrabPoint;
+            grab.InitialTargetRotation = target.GetRotation();
+            grab.InitialWorldPositions = target.IsDrawing
+                ? target.GetWorldLinePositions()
+                : null;
         }
     }
 
@@ -648,6 +783,7 @@ public static class PlaceableMultiGrabCoordinator
         }
 
         PruneInvalidExternalPlaceables();
+        PruneRotationLockedPlaceables();
     }
 
     private static void HandleAttachmentGrabStarted(int sourceId, GrabTarget target)
@@ -660,9 +796,7 @@ public static class PlaceableMultiGrabCoordinator
         if (target.IsDrawing)
         {
             var drawing = target.Drawing;
-            if (drawing != null
-                && drawing.IsAttachedToPlaceable
-                && IsPlaceableGrabbedByDifferentSource(drawing.AttachedPlaceable, sourceId))
+            if (drawing != null && drawing.IsAttachedToPlaceable)
             {
                 drawing.DetachFromPlaceable();
             }
@@ -698,6 +832,31 @@ public static class PlaceableMultiGrabCoordinator
             }
 
             return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsPlaceableGrabbed(PlaceableAsset placeable)
+    {
+        if (placeable == null)
+        {
+            return false;
+        }
+
+        if (ExternalGrabbedPlaceables.Contains(placeable))
+        {
+            return true;
+        }
+
+        foreach (var grab in ActiveGrabs.Values)
+        {
+            if (grab.Target != null
+                && grab.Target.IsPlaceable
+                && grab.Target.Placeable == placeable)
+            {
+                return true;
+            }
         }
 
         return false;
@@ -774,15 +933,9 @@ public static class PlaceableMultiGrabCoordinator
             return;
         }
 
-        if (drawing.IsAttachedToPlaceable)
+        if (drawing.TryAttachToPlaceablesOnRelease())
         {
             drawing.HideAttachmentPreview();
-            return;
-        }
-
-        if (drawing.TryFindAttachmentCandidate(out var placeable, out _, out var endpoint))
-        {
-            drawing.AttachToPlaceable(placeable, endpoint);
         }
         else
         {
@@ -841,6 +994,28 @@ public static class PlaceableMultiGrabCoordinator
         }
     }
 
+    private static void PruneRotationLockedPlaceables()
+    {
+        if (RotationLockedPlaceables.Count == 0)
+        {
+            return;
+        }
+
+        ScratchPlaceables.Clear();
+        foreach (var placeable in RotationLockedPlaceables)
+        {
+            if (placeable == null || !IsPlaceableGrabbed(placeable))
+            {
+                ScratchPlaceables.Add(placeable);
+            }
+        }
+
+        for (var i = 0; i < ScratchPlaceables.Count; i++)
+        {
+            RotationLockedPlaceables.Remove(ScratchPlaceables[i]);
+        }
+    }
+
     private sealed class GrabState
     {
         public int SourceId;
@@ -852,10 +1027,15 @@ public static class PlaceableMultiGrabCoordinator
         public Quaternion SourceRotation;
         public Quaternion InitialSourceRotation;
         public Vector3 InitialGrabPoint;
+        public Vector3 InitialTargetOffset;
+        public Quaternion InitialTargetRotation;
         public Vector3[] InitialWorldPositions;
+        public bool UsesSourceRotation;
 
         public bool HasSourceRotationSnapshot =>
-            InitialWorldPositions != null && InitialWorldPositions.Length > 0;
+            UsesSourceRotation
+            && (Target != null && Target.IsPlaceable
+                || InitialWorldPositions != null && InitialWorldPositions.Length > 0);
     }
 
     private struct MultiGrabState
@@ -889,7 +1069,7 @@ public static class PlaceableMultiGrabCoordinator
         public PhysicsDrawingSelectable Drawing => _drawing;
         public bool SupportsScale => _placeable != null || SupportsWorldLineScaling;
         public bool SupportsWorldLineScaling => _drawing != null && _drawing.SupportsRadiusScaling;
-        public bool SupportsSourceRotation => _drawing != null;
+        public bool SupportsSourceRotation => _placeable != null || _drawing != null;
 
         public static GrabTarget FromPlaceable(PlaceableAsset placeable)
         {
@@ -932,6 +1112,11 @@ public static class PlaceableMultiGrabCoordinator
             return _placeable != null ? _placeable.GetScale() : Vector3.one;
         }
 
+        public Quaternion GetRotation()
+        {
+            return _placeable != null ? _placeable.GetRotation() : Quaternion.identity;
+        }
+
         public Vector3[] GetWorldLinePositions()
         {
             return _drawing != null ? _drawing.GetWorldLinePositions() : null;
@@ -955,6 +1140,16 @@ public static class PlaceableMultiGrabCoordinator
             }
         }
 
+        public void SetPose(Vector3 position, Quaternion rotation)
+        {
+            _placeable?.SetPose(position, rotation);
+        }
+
+        public void SnapUprightPreserveYaw()
+        {
+            _placeable?.SnapUprightPreserveYaw();
+        }
+
         public void SetScaledWorldLinePositions(
             IReadOnlyList<Vector3> positions,
             Vector3 targetCenter,
@@ -976,16 +1171,7 @@ public static class PlaceableMultiGrabCoordinator
         {
             if (_placeable != null)
             {
-                var rb = _placeable.Rigidbody;
-                if (rb != null)
-                {
-                    rb.position = targetPosition;
-                    rb.linearVelocity = Vector3.zero;
-                    rb.angularVelocity = Vector3.zero;
-                    return;
-                }
-
-                _placeable.SetPosition(targetPosition);
+                _placeable.SetPose(targetPosition, _placeable.GetRotation());
                 return;
             }
 

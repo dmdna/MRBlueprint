@@ -5,8 +5,9 @@ using UnityEngine.Rendering;
 
 public enum XRControlMode
 {
-    Drawing,
-    Selection
+    Drawing = 0,
+    Edit = 1,
+    Selection = Edit
 }
 
 public class XRContentDrawerController : MonoBehaviour
@@ -33,7 +34,10 @@ public class XRContentDrawerController : MonoBehaviour
     private bool _drawerRenderingConfigured;
 
     public bool IsOpen => isOpen;
-    public XRControlMode CurrentMode => isOpen ? XRControlMode.Selection : XRControlMode.Drawing;
+    public XRControlMode CurrentMode =>
+        SandboxEditorModeState.Current == SandboxEditorSessionMode.Draw
+            ? XRControlMode.Drawing
+            : XRControlMode.Edit;
 
     public event Action<XRControlMode> ControlModeChanged;
 
@@ -47,6 +51,17 @@ public class XRContentDrawerController : MonoBehaviour
         }
 
         ControlModeChanged?.Invoke(CurrentMode);
+    }
+
+    private void OnEnable()
+    {
+        SandboxEditorModeState.ModeChanged -= OnSandboxEditorModeChanged;
+        SandboxEditorModeState.ModeChanged += OnSandboxEditorModeChanged;
+    }
+
+    private void OnDisable()
+    {
+        SandboxEditorModeState.ModeChanged -= OnSandboxEditorModeChanged;
     }
 
     private void OnDestroy()
@@ -90,7 +105,6 @@ public class XRContentDrawerController : MonoBehaviour
         }
 
         isOpen = true;
-        ControlModeChanged?.Invoke(CurrentMode);
 
         if (panelAnimator != null)
         {
@@ -106,7 +120,6 @@ public class XRContentDrawerController : MonoBehaviour
         }
 
         isOpen = false;
-        ControlModeChanged?.Invoke(CurrentMode);
         drawerItemSelection?.ClearSelection();
 
         if (panelAnimator != null)
@@ -207,5 +220,10 @@ public class XRContentDrawerController : MonoBehaviour
         }
 
         _drawerRenderingConfigured = true;
+    }
+
+    private void OnSandboxEditorModeChanged(SandboxEditorSessionMode _)
+    {
+        ControlModeChanged?.Invoke(CurrentMode);
     }
 }

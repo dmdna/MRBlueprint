@@ -34,7 +34,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     [Header("UI Pointer")]
     [SerializeField] private bool enableWorldUiPointer = true;
-    [SerializeField] private string uiCanvasName = "PlaceableInspectorCanvas";
+    [SerializeField] private string uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas";
     [SerializeField] private float uiRayDistance = 8f;
 
     [Header("Fallback Line Style")]
@@ -57,6 +57,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private bool _rightTriggerWasPressed;
     private bool _leftGripWasPressed;
     private bool _rightGripWasPressed;
+    private bool _leftThumbstickWasPressed;
+    private bool _rightThumbstickWasPressed;
     private int _activeGizmoDragSourceId;
 
     public static bool AnyControllerGrabActive =>
@@ -80,6 +82,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         var rightPointer = UpdateRay(_rightRay, rightControllerRayOrigin, true);
         HandleGripGrab(false, leftPointer, _leftRay, ref _leftGripWasPressed);
         HandleGripGrab(true, rightPointer, _rightRay, ref _rightGripWasPressed);
+        HandleThumbstickSnap(false, ref _leftThumbstickWasPressed);
+        HandleThumbstickSnap(true, ref _rightThumbstickWasPressed);
         HandleTriggerSelection(false, leftPointer, ref _leftUiPointer, ref _leftTriggerWasPressed);
         HandleTriggerSelection(true, rightPointer, ref _rightUiPointer, ref _rightTriggerWasPressed);
     }
@@ -105,6 +109,8 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         EndGizmoDrag();
         SetVisible(_leftRay, false);
         SetVisible(_rightRay, false);
+        _leftThumbstickWasPressed = false;
+        _rightThumbstickWasPressed = false;
     }
 
     private RayPointerState UpdateRay(ControllerRayState rayState, Transform rayOrigin, bool isRightHand)
@@ -179,7 +185,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         var mode = ResolveControlMode();
-        if (mode == XRControlMode.Selection)
+        if (mode == XRControlMode.Edit)
         {
             if (TryGetFirstRayHit(
                     origin,
@@ -738,12 +744,14 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                     ? PlaceableMultiGrabCoordinator.TryBeginDirectGrab(
                         sourceId,
                         placeableGrabTarget,
-                        pointerState.DirectPoint)
+                        pointerState.DirectPoint,
+                        pointerState.Rotation)
                     : PlaceableMultiGrabCoordinator.TryBeginGrab(
                         sourceId,
                         placeableGrabTarget,
                         pointerState.Origin,
                         pointerState.Direction,
+                        pointerState.Rotation,
                         ResolvePointerHitDistance(pointerState),
                         minGrabDistance,
                         Mathf.Max(minGrabDistance, maxGrabDistance));
@@ -789,6 +797,22 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         gripWasPressed = gripPressed;
+    }
+
+    private void HandleThumbstickSnap(bool isRightHand, ref bool thumbstickWasPressed)
+    {
+        var pressed = ShouldUseControllerHand(isRightHand) && ReadThumbstickClickPressed(isRightHand);
+        if (pressed && !thumbstickWasPressed)
+        {
+            var sourceId = ResolveControllerSourceId(isRightHand);
+            if (!PlaceableMultiGrabCoordinator.IsSourceGrabbingPhysicsDrawing(sourceId)
+                && !PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId))
+            {
+                PlaceableMultiGrabCoordinator.SnapGrabbedPlaceablesUprightPreserveYaw();
+            }
+        }
+
+        thumbstickWasPressed = pressed;
     }
 
     private static PlaceableAsset ResolvePlaceableGrabTarget(RayPointerState pointerState)
@@ -845,6 +869,15 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         return Mathf.Abs(axis.y) >= thumbstickDeadzone ? axis.y : 0f;
+    }
+
+    private bool ReadThumbstickClickPressed(bool isRightHand)
+    {
+        var device = XRInputDevices.GetDeviceAtXRNode(isRightHand ? XRNode.RightHand : XRNode.LeftHand);
+        return device.isValid
+               && !IsLogitechStylus(device)
+               && device.TryGetFeatureValue(XRCommonUsages.primary2DAxisClick, out var pressed)
+               && pressed;
     }
 
     private void UpdateGrab(
@@ -968,7 +1001,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     private float ResolveModeRayDistance()
     {
-        return ResolveControlMode() == XRControlMode.Selection ? selectionRayLength : drawingRayLength;
+        return ResolveControlMode() == XRControlMode.Edit ? selectionRayLength : drawingRayLength;
     }
 
     private Vector3 ResolveLocalPositionOffset(bool isRightHand)

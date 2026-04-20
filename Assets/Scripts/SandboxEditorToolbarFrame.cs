@@ -29,6 +29,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     [SerializeField] private float barHeight = 52f;
     [SerializeField] private int canvasSortOrder = 25;
     [SerializeField] private float toolbarIconHeight = 34f;
+    [SerializeField] private bool startVisible = true;
+    [SerializeField] private bool toolbarAtBottom;
 
     private GameObject _canvasRoot;
     private GameObject _optionsOverlayRoot;
@@ -68,6 +70,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         RefreshSessionModeLabel();
         RefreshShellBarsVisibility();
         ApplyDrawModeInteractionPolicy();
+        SetToolbarVisible(startVisible);
     }
 
     private void OnDestroy()
@@ -158,11 +161,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         _mainToolbarBar = bar;
         bar.transform.SetParent(canvasGo.transform, false);
         var barRt = bar.AddComponent<RectTransform>();
-        barRt.anchorMin = new Vector2(0f, 1f);
-        barRt.anchorMax = new Vector2(1f, 1f);
-        barRt.pivot = new Vector2(0.5f, 1f);
-        barRt.anchoredPosition = new Vector2(0f, 0f);
-        barRt.sizeDelta = new Vector2(0f, barHeight);
+        ConfigureToolbarBarRect(barRt, 0);
 
         var barBg = bar.AddComponent<Image>();
         barBg.color = new Color(0.06f, 0.07f, 0.1f, 0.88f);
@@ -262,11 +261,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         _simToolbarBar = new GameObject("SimToolbarBar");
         _simToolbarBar.transform.SetParent(canvasTransform, false);
         var simBarRt = _simToolbarBar.AddComponent<RectTransform>();
-        simBarRt.anchorMin = new Vector2(0f, 1f);
-        simBarRt.anchorMax = new Vector2(1f, 1f);
-        simBarRt.pivot = new Vector2(0.5f, 1f);
-        simBarRt.anchoredPosition = new Vector2(0f, -barHeight);
-        simBarRt.sizeDelta = new Vector2(0f, barHeight);
+        ConfigureToolbarBarRect(simBarRt, toolbarAtBottom ? 0 : 1);
 
         var simBarBg = _simToolbarBar.AddComponent<Image>();
         simBarBg.color = new Color(0.07f, 0.09f, 0.14f, 0.92f);
@@ -314,11 +309,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         _drawToolbarBar = new GameObject("DrawToolbarBar");
         _drawToolbarBar.transform.SetParent(canvasTransform, false);
         var drawBarRt = _drawToolbarBar.AddComponent<RectTransform>();
-        drawBarRt.anchorMin = new Vector2(0f, 1f);
-        drawBarRt.anchorMax = new Vector2(1f, 1f);
-        drawBarRt.pivot = new Vector2(0.5f, 1f);
-        drawBarRt.anchoredPosition = new Vector2(0f, 0f);
-        drawBarRt.sizeDelta = new Vector2(0f, barHeight);
+        ConfigureToolbarBarRect(drawBarRt, 0);
 
         var drawBarBg = _drawToolbarBar.AddComponent<Image>();
         drawBarBg.color = new Color(0.08f, 0.1f, 0.14f, 0.93f);
@@ -347,6 +338,29 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             "Clear all drawn strokes");
 
         _drawToolbarBar.SetActive(false);
+    }
+
+    private void ConfigureToolbarBarRect(RectTransform rect, int rowOffsetFromEdge)
+    {
+        if (rect == null)
+            return;
+
+        if (toolbarAtBottom)
+        {
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.anchoredPosition = new Vector2(0f, Mathf.Max(0, rowOffsetFromEdge) * barHeight);
+        }
+        else
+        {
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, -Mathf.Max(0, rowOffsetFromEdge) * barHeight);
+        }
+
+        rect.sizeDelta = new Vector2(0f, barHeight);
     }
 
     private void AddSlotButton(Transform parent, string slotId, string iconFileBase, bool wired,
@@ -629,6 +643,39 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             _optionsOverlayRoot.SetActive(visible);
     }
 
+    public bool IsToolbarVisible => _canvasRoot != null && _canvasRoot.activeSelf;
+
+    public void SetToolbarVisible(bool visible)
+    {
+        if (_canvasRoot == null)
+            return;
+
+        if (!visible)
+            SetOptionsVisible(false);
+
+        if (visible)
+        {
+            RefreshSessionModeLabel();
+            RefreshShellBarsVisibility();
+        }
+
+        _canvasRoot.SetActive(visible);
+    }
+
+    public void ToggleToolbarVisible()
+    {
+        SetToolbarVisible(!IsToolbarVisible);
+    }
+
+    public void ToggleOptionsVisible()
+    {
+        if (_canvasRoot != null && !_canvasRoot.activeSelf)
+            SetToolbarVisible(true);
+
+        var next = _optionsOverlayRoot == null || !_optionsOverlayRoot.activeSelf;
+        SetOptionsVisible(next);
+    }
+
     private void OnDrawerClicked()
     {
         if (drawerController != null)
@@ -645,6 +692,10 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
         if (transformGizmo != null && transformGizmo.IsDragging)
             transformGizmo.EndDrag();
+
+        var lineDrawing = FindLineDrawingOrNull();
+        if (lineDrawing != null)
+            DrawStrokeBridge.TryClearAllStrokes(lineDrawing);
 
         var placeables = FindObjectsByType<PlaceableAsset>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         for (var i = 0; i < placeables.Length; i++)
@@ -688,8 +739,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private void OnOptionsClicked()
     {
-        var next = _optionsOverlayRoot == null || !_optionsOverlayRoot.activeSelf;
-        SetOptionsVisible(next);
+        ToggleOptionsVisible();
     }
 
     /// <summary>Phase D3 — invokes private <see cref="LineDrawing"/> helpers without editing <c>Assets/Logitech</c>.</summary>

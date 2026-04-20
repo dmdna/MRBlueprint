@@ -428,15 +428,21 @@ public class LineDrawing : MonoBehaviour
             return;
         }
 
-        if (IsSelectionMode())
+        float analogInput = Mathf.Max(_stylusHandler.CurrentState.tip_value, _stylusHandler.CurrentState.cluster_middle_value);
+        var canDrawNow = analogInput > 0f && _stylusHandler.CanDraw();
+
+        if (IsEditMode())
         {
-            SuspendDrawingForSelectionMode();
-            return;
+            if (!canDrawNow)
+            {
+                SuspendDrawingForEditMode();
+                return;
+            }
+
+            SwitchToDrawModeFromStylusInput();
         }
 
-        float analogInput = Mathf.Max(_stylusHandler.CurrentState.tip_value, _stylusHandler.CurrentState.cluster_middle_value);
-
-        if (analogInput > 0 && _stylusHandler.CanDraw())
+        if (canDrawNow)
         {
             if (_highlightedLine)
             {
@@ -668,10 +674,10 @@ public class LineDrawing : MonoBehaviour
         }
     }
 
-    private bool IsSelectionMode()
+    private bool IsEditMode()
     {
         ResolveControlModeSource();
-        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Selection;
+        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Edit;
     }
 
     private void ResolveControlModeSource()
@@ -684,7 +690,7 @@ public class LineDrawing : MonoBehaviour
         _controlModeSource = FindFirstObjectByType<XRContentDrawerController>(FindObjectsInactive.Include);
     }
 
-    private void SuspendDrawingForSelectionMode()
+    private void SuspendDrawingForEditMode()
     {
         if (_isDrawing)
         {
@@ -700,6 +706,15 @@ public class LineDrawing : MonoBehaviour
         EndDirectStylusPhysicsGrab();
         _movingLine = false;
         _doubleTapDetected = false;
+    }
+
+    private static void SwitchToDrawModeFromStylusInput()
+    {
+        SandboxEditorModeState.SetSessionMode(SandboxEditorSessionMode.Draw);
+
+        var toolbar = FindFirstObjectByType<SandboxEditorToolbarFrame>(FindObjectsInactive.Include);
+        if (toolbar != null)
+            toolbar.SetToolbarVisible(true);
     }
 
     private void SuspendDrawingForEndpointEdit()

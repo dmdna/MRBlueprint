@@ -27,13 +27,13 @@ public class InputManager : MonoBehaviour
 
     public bool IsDrawing()
     {
-        return !IsSelectionMode() && GetPressure() > 0f && _stylusHandler.CanDraw();
+        return AllowsDrawingMode() && GetPressure() > 0f && _stylusHandler.CanDraw();
     }
 
-    private bool IsSelectionMode()
+    private bool AllowsDrawingMode()
     {
         ResolveControlModeSource();
-        return _controlModeSource != null && _controlModeSource.CurrentMode == XRControlMode.Selection;
+        return _controlModeSource == null || _controlModeSource.CurrentMode == XRControlMode.Drawing;
     }
 
     private void ResolveControlModeSource()

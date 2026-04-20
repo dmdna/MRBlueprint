@@ -111,6 +111,7 @@ public class PlaceableAsset : MonoBehaviour
     public void SetScale(Vector3 newScale)
     {
         transform.localScale = newScale;
+        Physics.SyncTransforms();
     }
 
     public Vector3 GetPosition()
@@ -121,6 +122,12 @@ public class PlaceableAsset : MonoBehaviour
     public void SetPosition(Vector3 newPosition)
     {
         transform.position = newPosition;
+        Physics.SyncTransforms();
+    }
+
+    public Quaternion GetRotation()
+    {
+        return transform.rotation;
     }
 
     public Vector3 GetRotationEuler()
@@ -131,6 +138,27 @@ public class PlaceableAsset : MonoBehaviour
     public void SetRotationEuler(Vector3 newEuler)
     {
         transform.rotation = Quaternion.Euler(newEuler);
+        Physics.SyncTransforms();
+    }
+
+    public void SetPose(Vector3 newPosition, Quaternion newRotation)
+    {
+        if (rb != null)
+        {
+            rb.position = newPosition;
+            rb.rotation = newRotation;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        transform.SetPositionAndRotation(newPosition, newRotation);
+        Physics.SyncTransforms();
+    }
+
+    public void SnapUprightPreserveYaw()
+    {
+        var yaw = transform.eulerAngles.y;
+        SetPose(transform.position, Quaternion.Euler(0f, yaw, 0f));
     }
 
     /// <summary>
@@ -139,13 +167,7 @@ public class PlaceableAsset : MonoBehaviour
     public void RotateWorldY(float degrees)
     {
         var q = Quaternion.AngleAxis(degrees, Vector3.up) * transform.rotation;
-        if (rb != null)
-        {
-            rb.MoveRotation(q);
-            rb.angularVelocity = Vector3.zero;
-        }
-        else
-            transform.rotation = q;
+        SetPose(transform.position, q);
     }
 
     /// <summary>User intent for gravity during simulation (inspector toggle).</summary>

@@ -37,6 +37,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     [SerializeField] private float attachmentIndicatorDiameter = 0.06f;
     [SerializeField] private float hingeAttachmentLineWidth = 0.01f;
     [SerializeField] private Color attachmentIndicatorColor = Color.white;
+    [SerializeField] private Color attachmentIndicatorOutlineColor = Color.black;
 
     private readonly List<GameObject> _colliders = new();
     private LineRenderer _lineRenderer;
@@ -47,21 +48,41 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     private PhysicsDrawingEndpointHandle _endHandle;
     private Material _selectionAuraMaterial;
     private Material _attachmentMaterial;
+    private Material _attachmentOutlineMaterial;
     private GameObject _attachmentSphere;
+    private GameObject _attachmentOutlineSphere;
+    private GameObject _secondaryAttachmentSphere;
+    private GameObject _secondaryAttachmentOutlineSphere;
     private MeshRenderer _attachmentSphereRenderer;
+    private MeshRenderer _attachmentOutlineSphereRenderer;
+    private MeshRenderer _secondaryAttachmentSphereRenderer;
+    private MeshRenderer _secondaryAttachmentOutlineSphereRenderer;
     private LineDrawing _owner;
     private PlaceableAsset _attachedPlaceable;
+    private PlaceableAsset _attachedStartPlaceable;
+    private PlaceableAsset _attachedEndPlaceable;
     private PlaceableAsset _previewPlaceable;
     private Vector3[] _attachedLocalLinePositions;
+    private Vector3 _attachedLocalJunction;
+    private Quaternion _attachedLocalFrame = Quaternion.identity;
+    private Vector3 _attachedStartLocalPoint;
+    private Vector3 _attachedEndLocalPoint;
     private Vector3 _previewJunctionPoint;
     private Vector3 _attachedLastPosition;
     private Vector3 _attachedLastScale;
     private Quaternion _attachedLastRotation;
+    private Vector3 _attachedStartLastPosition;
+    private Vector3 _attachedStartLastScale;
+    private Quaternion _attachedStartLastRotation;
+    private Vector3 _attachedEndLastPosition;
+    private Vector3 _attachedEndLastScale;
+    private Quaternion _attachedEndLastRotation;
     private PhysicsDrawingEndpoint _attachedLinearEndpoint = PhysicsDrawingEndpoint.Start;
     private Color _baseColor = Color.white;
     private bool _isHovered;
     private bool _isSelected;
     private bool _isApplyingAttachmentFollow;
+    private bool _hasAttachedLocalPose;
 
     public string DisplayName => displayName;
     public PhysicsIntentType PhysicsIntent => physicsIntent;
@@ -73,8 +94,15 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         physicsIntent == PhysicsIntentType.Spring
         || physicsIntent == PhysicsIntentType.Impulse
         || physicsIntent == PhysicsIntentType.Hinge;
-    public PlaceableAsset AttachedPlaceable => _attachedPlaceable;
-    public bool IsAttachedToPlaceable => _attachedPlaceable != null;
+    public PlaceableAsset AttachedPlaceable => _attachedPlaceable != null
+        ? _attachedPlaceable
+        : _attachedStartPlaceable != null
+            ? _attachedStartPlaceable
+            : _attachedEndPlaceable;
+    public bool IsAttachedToPlaceable =>
+        _attachedPlaceable != null
+        || _attachedStartPlaceable != null
+        || _attachedEndPlaceable != null;
     public float SpringStiffness => springStiffness;
     public float HingeTorque => hingeTorque;
     public float ImpulseForce => impulseForce;
@@ -125,6 +153,11 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         if (_attachmentMaterial != null)
         {
             Destroy(_attachmentMaterial);
+        }
+
+        if (_attachmentOutlineMaterial != null)
+        {
+            Destroy(_attachmentOutlineMaterial);
         }
     }
 
@@ -375,7 +408,10 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
     public bool IsAttachedTo(PlaceableAsset placeable)
     {
-        return placeable != null && _attachedPlaceable == placeable;
+        return placeable != null
+               && (_attachedPlaceable == placeable
+                   || _attachedStartPlaceable == placeable
+                   || _attachedEndPlaceable == placeable);
     }
 
     public bool TryFindAttachmentCandidate(
@@ -443,7 +479,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     public void HideAttachmentPreview()
     {
         _previewPlaceable = null;
-        if (_attachedPlaceable == null)
+        if (!IsAttachedToPlaceable)
         {
             SetAttachmentVisualsVisible(false, false);
             return;
@@ -460,6 +496,16 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
 
         _previewPlaceable = null;
+        if (physicsIntent == PhysicsIntentType.Spring)
+        {
+            if (!TryResolveLinearAttachmentProbeForEndpoint(placeable, linearEndpoint, out var endpointProbe))
+            {
+                return false;
+            }
+
+            return AttachSpringEndpoint(placeable, endpointProbe);
+        }
+
         if (physicsIntent != PhysicsIntentType.Hinge
             && TryResolveLinearAttachmentProbe(placeable, out var linearProbe))
         {
@@ -474,12 +520,145 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return true;
     }
 
+    public bool TryAttachToPlaceablesOnRelease()
+    {
+        if (!CanAttachToPlaceable)
+        {
+            return false;
+        }
+
+        if (physicsIntent != PhysicsIntentType.Spring)
+        {
+            if (!TryFindAttachmentCandidate(out var placeable, out _, out var endpoint))
+            {
+                HideAttachmentPreview();
+                return false;
+            }
+
+            return AttachToPlaceable(placeable, endpoint);
+        }
+
+        var attachedAny = false;
+        if (TryFindLinearEndpointAttachmentCandidate(
+                PhysicsDrawingEndpoint.Start,
+                null,
+                out var startPlaceable,
+                out var startProbe)
+            && startProbe.CandidateDistance <= attachmentSnapDistance)
+        {
+            attachedAny |= AttachSpringEndpoint(startPlaceable, startProbe);
+        }
+
+        if (TryFindLinearEndpointAttachmentCandidate(
+                PhysicsDrawingEndpoint.End,
+                _attachedStartPlaceable,
+                out var endPlaceable,
+                out var endProbe)
+            && endProbe.CandidateDistance <= attachmentSnapDistance)
+        {
+            attachedAny |= AttachSpringEndpoint(endPlaceable, endProbe);
+        }
+
+        if (!attachedAny)
+        {
+            HideAttachmentPreview();
+        }
+
+        return attachedAny;
+    }
+
+    public bool TryAttachEndpointToPlaceableOnRelease(PhysicsDrawingEndpoint endpoint)
+    {
+        if (physicsIntent != PhysicsIntentType.Spring)
+        {
+            return false;
+        }
+
+        var excludedPlaceable = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedEndPlaceable
+            : _attachedStartPlaceable;
+        if (!TryFindLinearEndpointAttachmentCandidate(
+                endpoint,
+                excludedPlaceable,
+                out var placeable,
+                out var probe)
+            || probe.CandidateDistance > attachmentSnapDistance)
+        {
+            RefreshAttachmentVisual();
+            return false;
+        }
+
+        return AttachSpringEndpoint(placeable, probe);
+    }
+
+    public void DetachSpringEndpointForDrag(PhysicsDrawingEndpoint endpoint)
+    {
+        if (physicsIntent != PhysicsIntentType.Spring)
+        {
+            return;
+        }
+
+        var changed = false;
+        if (endpoint == PhysicsDrawingEndpoint.Start && _attachedStartPlaceable != null)
+        {
+            _attachedStartPlaceable = null;
+            changed = true;
+        }
+        else if (endpoint == PhysicsDrawingEndpoint.End && _attachedEndPlaceable != null)
+        {
+            _attachedEndPlaceable = null;
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        CaptureAttachmentLocalGeometry();
+        RefreshAttachmentVisual();
+    }
+
     public void DetachFromPlaceable()
     {
         _attachedPlaceable = null;
+        _attachedStartPlaceable = null;
+        _attachedEndPlaceable = null;
         _attachedLocalLinePositions = null;
+        _hasAttachedLocalPose = false;
         _previewPlaceable = null;
         SetAttachmentVisualsVisible(false, false);
+    }
+
+    private bool AttachSpringEndpoint(PlaceableAsset placeable, LinearAttachmentProbe probe)
+    {
+        if (placeable == null || physicsIntent != PhysicsIntentType.Spring)
+        {
+            return false;
+        }
+
+        _attachedPlaceable = null;
+        _attachedLocalLinePositions = null;
+        _hasAttachedLocalPose = false;
+        SetEndpointWorldPosition(probe.Endpoint, probe.SnapPoint);
+        var attachedPoint = ResolveLinearEndpointWorldPosition(probe.Endpoint);
+        if (probe.Endpoint == PhysicsDrawingEndpoint.Start)
+        {
+            _attachedStartPlaceable = placeable;
+            _attachedStartLocalPoint = placeable.transform.InverseTransformPoint(attachedPoint);
+            CacheSpringEndpointTransform(PhysicsDrawingEndpoint.Start);
+        }
+        else
+        {
+            _attachedEndPlaceable = placeable;
+            _attachedEndLocalPoint = placeable.transform.InverseTransformPoint(attachedPoint);
+            CacheSpringEndpointTransform(PhysicsDrawingEndpoint.End);
+        }
+
+        _previewPlaceable = null;
+        CaptureSpringEndpointAttachmentGeometry();
+        RefreshAttachmentVisual();
+        return true;
     }
 
     public bool TryMoveAttachedGroupToGrabPosition(Vector3 targetPosition)
@@ -510,15 +689,32 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
 
         var oldJunction = ResolveAttachmentJunctionWorldPosition(_attachedLinearEndpoint);
+        var hasLocalPose = _hasAttachedLocalPose;
+
         _isApplyingAttachmentFollow = true;
         SetWorldLinePositions(worldPositions);
         _isApplyingAttachmentFollow = false;
 
         var newJunction = ResolveAttachmentJunctionWorldPosition(_attachedLinearEndpoint);
-        var delta = newJunction - oldJunction;
-        if (delta.sqrMagnitude > 0.00000001f)
+        if (hasLocalPose
+            && TryResolveAttachmentFollowPose(
+                GetWorldLinePositions(),
+                _attachedLinearEndpoint,
+                out var worldJunction,
+                out var worldFrame))
         {
-            MoveAttachedPlaceableBy(delta);
+            var targetRotation = worldFrame * Quaternion.Inverse(_attachedLocalFrame);
+            SetAttachedPlaceablePose(
+                worldJunction - targetRotation * _attachedLocalJunction,
+                targetRotation);
+        }
+        else
+        {
+            var delta = newJunction - oldJunction;
+            if (delta.sqrMagnitude > 0.00000001f)
+            {
+                MoveAttachedPlaceableBy(delta);
+            }
         }
 
         CaptureAttachmentLocalGeometry();
@@ -693,6 +889,76 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
         probe = PickBetterLinearAttachmentProbe(startProbe, endProbe);
         return true;
+    }
+
+    private bool TryFindLinearEndpointAttachmentCandidate(
+        PhysicsDrawingEndpoint endpoint,
+        PlaceableAsset excludedPlaceable,
+        out PlaceableAsset candidate,
+        out LinearAttachmentProbe probe)
+    {
+        candidate = null;
+        probe = default;
+        if (physicsIntent == PhysicsIntentType.Hinge)
+        {
+            return false;
+        }
+
+        var placeables = FindObjectsByType<PlaceableAsset>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        var bestDistance = float.MaxValue;
+
+        for (var i = 0; i < placeables.Length; i++)
+        {
+            var placeable = placeables[i];
+            if (placeable == null
+                || placeable == excludedPlaceable
+                || !placeable.isActiveAndEnabled
+                || !TryResolveLinearAttachmentProbeForEndpoint(placeable, endpoint, out var endpointProbe))
+            {
+                continue;
+            }
+
+            if (endpointProbe.CandidateDistance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestDistance = endpointProbe.CandidateDistance;
+            candidate = placeable;
+            probe = endpointProbe;
+        }
+
+        return candidate != null;
+    }
+
+    private bool TryResolveLinearAttachmentProbeForEndpoint(
+        PlaceableAsset placeable,
+        PhysicsDrawingEndpoint endpoint,
+        out LinearAttachmentProbe probe)
+    {
+        probe = default;
+        if (placeable == null || physicsIntent == PhysicsIntentType.Hinge)
+        {
+            return false;
+        }
+
+        var startPoint = ResolveLinearEndpointWorldPosition(PhysicsDrawingEndpoint.Start);
+        var endPoint = ResolveLinearEndpointWorldPosition(PhysicsDrawingEndpoint.End);
+        return endpoint == PhysicsDrawingEndpoint.Start
+            ? TryResolveLinearEndpointContact(
+                placeable,
+                endpoint,
+                startPoint,
+                endPoint,
+                out probe)
+            : TryResolveLinearEndpointContact(
+                placeable,
+                endpoint,
+                endPoint,
+                startPoint,
+                out probe);
     }
 
     private bool TryResolveLinearEndpointContact(
@@ -1032,6 +1298,201 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return true;
     }
 
+    private bool TryResolveAttachmentFollowPose(
+        IReadOnlyList<Vector3> positions,
+        PhysicsDrawingEndpoint linearEndpoint,
+        out Vector3 junction,
+        out Quaternion frame)
+    {
+        junction = Vector3.zero;
+        frame = Quaternion.identity;
+        if (positions == null || positions.Count < 2)
+        {
+            return false;
+        }
+
+        junction = ResolveAttachmentJunctionPosition(positions, linearEndpoint);
+        return physicsIntent == PhysicsIntentType.Hinge
+            ? TryResolveHingeAttachmentFollowFrame(positions, out frame)
+            : TryResolveLinearAttachmentFollowFrame(positions, out frame);
+    }
+
+    private Vector3 ResolveAttachmentJunctionPosition(
+        IReadOnlyList<Vector3> positions,
+        PhysicsDrawingEndpoint linearEndpoint)
+    {
+        if (positions == null || positions.Count == 0)
+        {
+            return transform.position;
+        }
+
+        if (physicsIntent == PhysicsIntentType.Hinge)
+        {
+            return CalculateWorldBoundsCenter(positions);
+        }
+
+        if (linearEndpoint == PhysicsDrawingEndpoint.Start)
+        {
+            return positions[0];
+        }
+
+        return physicsIntent == PhysicsIntentType.Impulse
+            ? GetVisualEndpointWorldPosition(positions)
+            : positions[positions.Count - 1];
+    }
+
+    private bool TryResolveLinearAttachmentFollowFrame(
+        IReadOnlyList<Vector3> worldPositions,
+        out Quaternion frame)
+    {
+        frame = Quaternion.identity;
+        if (worldPositions == null || worldPositions.Count < 2)
+        {
+            return false;
+        }
+
+        var start = worldPositions[0];
+        var end = physicsIntent == PhysicsIntentType.Impulse
+            ? GetVisualEndpointWorldPosition(worldPositions)
+            : worldPositions[worldPositions.Count - 1];
+        var forward = end - start;
+        var upCandidate = ResolveLineUpCandidate(worldPositions, start, forward);
+        return TryBuildAttachmentFrame(forward, upCandidate, out frame);
+    }
+
+    private static Vector3 ResolveLineUpCandidate(
+        IReadOnlyList<Vector3> worldPositions,
+        Vector3 origin,
+        Vector3 forward)
+    {
+        if (worldPositions == null || forward.sqrMagnitude <= 0.000001f)
+        {
+            return Vector3.up;
+        }
+
+        var direction = forward.normalized;
+        var best = Vector3.zero;
+        var bestMagnitude = 0f;
+        for (var i = 1; i < worldPositions.Count - 1; i++)
+        {
+            var relative = worldPositions[i] - origin;
+            var perpendicular = relative - direction * Vector3.Dot(relative, direction);
+            var magnitude = perpendicular.sqrMagnitude;
+            if (magnitude <= bestMagnitude)
+            {
+                continue;
+            }
+
+            best = perpendicular;
+            bestMagnitude = magnitude;
+        }
+
+        return bestMagnitude > 0.000001f ? best : Vector3.up;
+    }
+
+    private static bool TryResolveHingeAttachmentFollowFrame(
+        IReadOnlyList<Vector3> worldPositions,
+        out Quaternion frame)
+    {
+        frame = Quaternion.identity;
+        if (worldPositions == null || worldPositions.Count < 3)
+        {
+            return false;
+        }
+
+        var center = CalculateWorldBoundsCenter(worldPositions);
+        if (!TryResolveHingeNormal(worldPositions, center, out var normal))
+        {
+            return false;
+        }
+
+        var normalDirection = normal.normalized;
+        var upCandidate = Vector3.zero;
+        var bestMagnitude = 0f;
+        for (var i = 0; i < worldPositions.Count; i++)
+        {
+            var relative = worldPositions[i] - center;
+            var projected = relative - normalDirection * Vector3.Dot(relative, normalDirection);
+            var magnitude = projected.sqrMagnitude;
+            if (magnitude <= bestMagnitude)
+            {
+                continue;
+            }
+
+            upCandidate = projected;
+            bestMagnitude = magnitude;
+        }
+
+        return TryBuildAttachmentFrame(normalDirection, upCandidate, out frame);
+    }
+
+    private static bool TryResolveHingeNormal(
+        IReadOnlyList<Vector3> worldPositions,
+        Vector3 center,
+        out Vector3 normal)
+    {
+        normal = Vector3.zero;
+        for (var i = 0; i < worldPositions.Count; i++)
+        {
+            var current = worldPositions[i] - center;
+            var next = worldPositions[(i + 1) % worldPositions.Count] - center;
+            normal += Vector3.Cross(current, next);
+        }
+
+        if (normal.sqrMagnitude > 0.000001f)
+        {
+            return true;
+        }
+
+        var origin = worldPositions[0];
+        for (var i = 1; i < worldPositions.Count - 1; i++)
+        {
+            var candidate = Vector3.Cross(
+                worldPositions[i] - origin,
+                worldPositions[i + 1] - origin);
+            if (candidate.sqrMagnitude <= normal.sqrMagnitude)
+            {
+                continue;
+            }
+
+            normal = candidate;
+        }
+
+        return normal.sqrMagnitude > 0.000001f;
+    }
+
+    private static bool TryBuildAttachmentFrame(
+        Vector3 forward,
+        Vector3 upCandidate,
+        out Quaternion frame)
+    {
+        frame = Quaternion.identity;
+        if (forward.sqrMagnitude <= 0.000001f)
+        {
+            return false;
+        }
+
+        var forwardDirection = forward.normalized;
+        var up = upCandidate - forwardDirection * Vector3.Dot(upCandidate, forwardDirection);
+        if (up.sqrMagnitude <= 0.000001f)
+        {
+            up = Vector3.up - forwardDirection * Vector3.Dot(Vector3.up, forwardDirection);
+        }
+
+        if (up.sqrMagnitude <= 0.000001f)
+        {
+            up = Vector3.right - forwardDirection * Vector3.Dot(Vector3.right, forwardDirection);
+        }
+
+        if (up.sqrMagnitude <= 0.000001f)
+        {
+            return false;
+        }
+
+        frame = Quaternion.LookRotation(forwardDirection, up.normalized);
+        return true;
+    }
+
     private Vector3 ResolveAttachmentJunctionWorldPosition(PhysicsDrawingEndpoint linearEndpoint)
     {
         if (physicsIntent == PhysicsIntentType.Hinge)
@@ -1071,8 +1532,198 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return CalculateWorldBoundsCenter(positions);
     }
 
+    private bool HasSpringEndpointAttachment()
+    {
+        return _attachedStartPlaceable != null || _attachedEndPlaceable != null;
+    }
+
+    private void FollowSpringEndpointAttachments()
+    {
+        var hasStart = _attachedStartPlaceable != null;
+        var hasEnd = _attachedEndPlaceable != null;
+        if (!hasStart && !hasEnd)
+        {
+            return;
+        }
+
+        if (hasStart != hasEnd)
+        {
+            FollowSingleSpringEndpointAttachment(hasStart
+                ? PhysicsDrawingEndpoint.Start
+                : PhysicsDrawingEndpoint.End);
+            return;
+        }
+
+        var changed = false;
+        if (hasStart)
+        {
+            if (!IsSpringEndpointAttachmentValid(_attachedStartPlaceable))
+            {
+                _attachedStartPlaceable = null;
+                hasStart = false;
+                changed = true;
+            }
+            else if (HasSpringEndpointTransformChanged(PhysicsDrawingEndpoint.Start))
+            {
+                changed = true;
+            }
+        }
+
+        if (hasEnd)
+        {
+            if (!IsSpringEndpointAttachmentValid(_attachedEndPlaceable))
+            {
+                _attachedEndPlaceable = null;
+                hasEnd = false;
+                changed = true;
+            }
+            else if (HasSpringEndpointTransformChanged(PhysicsDrawingEndpoint.End))
+            {
+                changed = true;
+            }
+        }
+
+        if (!hasStart && !hasEnd)
+        {
+            DetachFromPlaceable();
+            return;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        _isApplyingAttachmentFollow = true;
+        if (hasStart)
+        {
+            SetEndpointWorldPosition(
+                PhysicsDrawingEndpoint.Start,
+                _attachedStartPlaceable.transform.TransformPoint(_attachedStartLocalPoint));
+        }
+
+        if (hasEnd)
+        {
+            SetEndpointWorldPosition(
+                PhysicsDrawingEndpoint.End,
+                _attachedEndPlaceable.transform.TransformPoint(_attachedEndLocalPoint));
+        }
+
+        _isApplyingAttachmentFollow = false;
+
+        if (hasStart)
+        {
+            CacheSpringEndpointTransform(PhysicsDrawingEndpoint.Start);
+        }
+
+        if (hasEnd)
+        {
+            CacheSpringEndpointTransform(PhysicsDrawingEndpoint.End);
+        }
+
+        RefreshAttachmentVisual();
+    }
+
+    private void FollowSingleSpringEndpointAttachment(PhysicsDrawingEndpoint endpoint)
+    {
+        var placeable = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedStartPlaceable
+            : _attachedEndPlaceable;
+        if (!IsSpringEndpointAttachmentValid(placeable))
+        {
+            DetachFromPlaceable();
+            return;
+        }
+
+        if (_attachedLocalLinePositions == null || _attachedLocalLinePositions.Length == 0)
+        {
+            CaptureSpringEndpointAttachmentGeometry();
+            return;
+        }
+
+        if (!HasSpringEndpointTransformChanged(endpoint))
+        {
+            return;
+        }
+
+        var placeableTransform = placeable.transform;
+        var positions = new Vector3[_attachedLocalLinePositions.Length];
+        for (var i = 0; i < positions.Length; i++)
+        {
+            positions[i] = placeableTransform.TransformPoint(_attachedLocalLinePositions[i]);
+        }
+
+        _isApplyingAttachmentFollow = true;
+        SetWorldLinePositions(positions);
+        _isApplyingAttachmentFollow = false;
+        CacheSpringEndpointTransform(endpoint);
+        RefreshAttachmentVisual();
+    }
+
+    private static bool IsSpringEndpointAttachmentValid(PlaceableAsset placeable)
+    {
+        return placeable != null && placeable.isActiveAndEnabled;
+    }
+
+    private bool HasSpringEndpointTransformChanged(PhysicsDrawingEndpoint endpoint)
+    {
+        var placeable = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedStartPlaceable
+            : _attachedEndPlaceable;
+        if (placeable == null)
+        {
+            return false;
+        }
+
+        var placeableTransform = placeable.transform;
+        var lastPosition = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedStartLastPosition
+            : _attachedEndLastPosition;
+        var lastRotation = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedStartLastRotation
+            : _attachedEndLastRotation;
+        var lastScale = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedStartLastScale
+            : _attachedEndLastScale;
+
+        return (placeableTransform.position - lastPosition).sqrMagnitude > 0.00000001f
+               || Quaternion.Angle(placeableTransform.rotation, lastRotation) > 0.01f
+               || (placeableTransform.lossyScale - lastScale).sqrMagnitude > 0.00000001f;
+    }
+
+    private void CacheSpringEndpointTransform(PhysicsDrawingEndpoint endpoint)
+    {
+        var placeable = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedStartPlaceable
+            : _attachedEndPlaceable;
+        if (placeable == null)
+        {
+            return;
+        }
+
+        var placeableTransform = placeable.transform;
+        if (endpoint == PhysicsDrawingEndpoint.Start)
+        {
+            _attachedStartLastPosition = placeableTransform.position;
+            _attachedStartLastRotation = placeableTransform.rotation;
+            _attachedStartLastScale = placeableTransform.lossyScale;
+        }
+        else
+        {
+            _attachedEndLastPosition = placeableTransform.position;
+            _attachedEndLastRotation = placeableTransform.rotation;
+            _attachedEndLastScale = placeableTransform.lossyScale;
+        }
+    }
+
     private void FollowAttachedPlaceable()
     {
+        if (physicsIntent == PhysicsIntentType.Spring && HasSpringEndpointAttachment())
+        {
+            FollowSpringEndpointAttachments();
+            return;
+        }
+
         if (_attachedPlaceable == null)
         {
             if (_attachedLocalLinePositions != null)
@@ -1116,9 +1767,16 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
     private void CaptureAttachmentLocalGeometry()
     {
+        if (physicsIntent == PhysicsIntentType.Spring && HasSpringEndpointAttachment())
+        {
+            CaptureSpringEndpointAttachmentGeometry();
+            return;
+        }
+
         if (_attachedPlaceable == null)
         {
             _attachedLocalLinePositions = null;
+            _hasAttachedLocalPose = false;
             return;
         }
 
@@ -1130,7 +1788,60 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
             _attachedLocalLinePositions[i] = placeableTransform.InverseTransformPoint(worldPositions[i]);
         }
 
+        if (TryResolveAttachmentFollowPose(
+                worldPositions,
+                _attachedLinearEndpoint,
+                out var worldJunction,
+                out var worldFrame))
+        {
+            _attachedLocalJunction = placeableTransform.InverseTransformPoint(worldJunction);
+            _attachedLocalFrame = Quaternion.Inverse(placeableTransform.rotation) * worldFrame;
+            _hasAttachedLocalPose = true;
+        }
+        else
+        {
+            _hasAttachedLocalPose = false;
+        }
+
         CacheAttachedPlaceableTransform();
+    }
+
+    private void CaptureSpringEndpointAttachmentGeometry()
+    {
+        var singleAttachmentPlaceable = _attachedStartPlaceable != null && _attachedEndPlaceable == null
+            ? _attachedStartPlaceable
+            : _attachedEndPlaceable != null && _attachedStartPlaceable == null
+                ? _attachedEndPlaceable
+                : null;
+
+        if (singleAttachmentPlaceable != null)
+        {
+            var placeableTransform = singleAttachmentPlaceable.transform;
+            var worldPositions = GetWorldLinePositions();
+            _attachedLocalLinePositions = new Vector3[worldPositions.Length];
+            for (var i = 0; i < worldPositions.Length; i++)
+            {
+                _attachedLocalLinePositions[i] = placeableTransform.InverseTransformPoint(worldPositions[i]);
+            }
+        }
+        else
+        {
+            _attachedLocalLinePositions = null;
+        }
+
+        if (_attachedStartPlaceable != null)
+        {
+            _attachedStartLocalPoint = _attachedStartPlaceable.transform.InverseTransformPoint(
+                ResolveLinearEndpointWorldPosition(PhysicsDrawingEndpoint.Start));
+            CacheSpringEndpointTransform(PhysicsDrawingEndpoint.Start);
+        }
+
+        if (_attachedEndPlaceable != null)
+        {
+            _attachedEndLocalPoint = _attachedEndPlaceable.transform.InverseTransformPoint(
+                ResolveLinearEndpointWorldPosition(PhysicsDrawingEndpoint.End));
+            CacheSpringEndpointTransform(PhysicsDrawingEndpoint.End);
+        }
     }
 
     private bool HasAttachedPlaceableTransformChanged(Transform placeableTransform)
@@ -1178,8 +1889,26 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         placeableTransform.position = targetPosition;
     }
 
+    private void SetAttachedPlaceablePose(Vector3 targetPosition, Quaternion targetRotation)
+    {
+        if (_attachedPlaceable == null)
+        {
+            return;
+        }
+
+        _attachedPlaceable.SetPose(targetPosition, targetRotation);
+    }
+
     private void RefreshAttachmentVisual()
     {
+        if (_previewPlaceable == null
+            && physicsIntent == PhysicsIntentType.Spring
+            && HasSpringEndpointAttachment())
+        {
+            RefreshSpringEndpointAttachmentVisual();
+            return;
+        }
+
         var placeable = _previewPlaceable != null ? _previewPlaceable : _attachedPlaceable;
         if (placeable == null)
         {
@@ -1197,6 +1926,14 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
 
         EnsureAttachmentVisuals();
+        if (_attachmentOutlineSphere != null)
+        {
+            _attachmentOutlineSphere.transform.position = junction;
+            _attachmentOutlineSphere.transform.rotation = Quaternion.identity;
+            _attachmentOutlineSphere.transform.localScale = Vector3.one * attachmentIndicatorDiameter * 1.18f;
+            _attachmentOutlineSphere.layer = gameObject.layer;
+        }
+
         if (_attachmentSphere != null)
         {
             _attachmentSphere.transform.position = junction;
@@ -1216,8 +1953,113 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         SetAttachmentVisualsVisible(true, isHinge);
     }
 
+    private void RefreshSpringEndpointAttachmentVisual()
+    {
+        var hasStart = _attachedStartPlaceable != null;
+        var hasEnd = _attachedEndPlaceable != null;
+        if (!hasStart && !hasEnd)
+        {
+            SetAttachmentVisualsVisible(false, false);
+            return;
+        }
+
+        EnsureAttachmentVisuals();
+        var primarySet = false;
+        if (hasStart)
+        {
+            SetAttachmentSpherePair(
+                _attachmentOutlineSphere,
+                _attachmentSphere,
+                ResolveEndpointAttachmentVisualJunction(
+                    _attachedStartPlaceable,
+                    PhysicsDrawingEndpoint.Start,
+                    ResolveLinearEndpointWorldPosition(PhysicsDrawingEndpoint.Start)));
+            primarySet = true;
+        }
+
+        if (hasEnd)
+        {
+            var endJunction = ResolveEndpointAttachmentVisualJunction(
+                _attachedEndPlaceable,
+                PhysicsDrawingEndpoint.End,
+                ResolveLinearEndpointWorldPosition(PhysicsDrawingEndpoint.End));
+            if (primarySet)
+            {
+                SetAttachmentSpherePair(
+                    _secondaryAttachmentOutlineSphere,
+                    _secondaryAttachmentSphere,
+                    endJunction);
+            }
+            else
+            {
+                SetAttachmentSpherePair(
+                    _attachmentOutlineSphere,
+                    _attachmentSphere,
+                    endJunction);
+            }
+        }
+
+        SetAttachmentVisualsVisible(true, false, hasStart && hasEnd);
+    }
+
+    private Vector3 ResolveEndpointAttachmentVisualJunction(
+        PlaceableAsset placeable,
+        PhysicsDrawingEndpoint endpoint,
+        Vector3 fallback)
+    {
+        return TryResolveLinearAttachmentProbeForEndpoint(placeable, endpoint, out var probe)
+            ? probe.JunctionPoint
+            : fallback;
+    }
+
+    private void SetAttachmentSpherePair(
+        GameObject outlineSphere,
+        GameObject sphere,
+        Vector3 junction)
+    {
+        if (outlineSphere != null)
+        {
+            outlineSphere.transform.position = junction;
+            outlineSphere.transform.rotation = Quaternion.identity;
+            outlineSphere.transform.localScale = Vector3.one * attachmentIndicatorDiameter * 1.18f;
+            outlineSphere.layer = gameObject.layer;
+        }
+
+        if (sphere != null)
+        {
+            sphere.transform.position = junction;
+            sphere.transform.rotation = Quaternion.identity;
+            sphere.transform.localScale = Vector3.one * attachmentIndicatorDiameter;
+            sphere.layer = gameObject.layer;
+        }
+    }
+
     private void EnsureAttachmentVisuals()
     {
+        if (_attachmentOutlineSphere == null)
+        {
+            _attachmentOutlineSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _attachmentOutlineSphere.name = "PhysicsAttachmentJunctionOutline";
+            _attachmentOutlineSphere.transform.SetParent(transform, true);
+            _attachmentOutlineSphere.layer = gameObject.layer;
+
+            var outlineCollider = _attachmentOutlineSphere.GetComponent<Collider>();
+            if (outlineCollider != null)
+            {
+                Destroy(outlineCollider);
+            }
+
+            _attachmentOutlineSphereRenderer = _attachmentOutlineSphere.GetComponent<MeshRenderer>();
+            if (_attachmentOutlineSphereRenderer != null)
+            {
+                _attachmentOutlineSphereRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                _attachmentOutlineSphereRenderer.receiveShadows = false;
+                _attachmentOutlineSphereRenderer.sharedMaterial = GetAttachmentOutlineMaterial();
+            }
+
+            _attachmentOutlineSphere.SetActive(false);
+        }
+
         if (_attachmentSphere == null)
         {
             _attachmentSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -1242,6 +2084,54 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
             _attachmentSphere.SetActive(false);
         }
 
+        if (_secondaryAttachmentOutlineSphere == null)
+        {
+            _secondaryAttachmentOutlineSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _secondaryAttachmentOutlineSphere.name = "PhysicsAttachmentJunctionOutlineSecondary";
+            _secondaryAttachmentOutlineSphere.transform.SetParent(transform, true);
+            _secondaryAttachmentOutlineSphere.layer = gameObject.layer;
+
+            var secondaryOutlineCollider = _secondaryAttachmentOutlineSphere.GetComponent<Collider>();
+            if (secondaryOutlineCollider != null)
+            {
+                Destroy(secondaryOutlineCollider);
+            }
+
+            _secondaryAttachmentOutlineSphereRenderer = _secondaryAttachmentOutlineSphere.GetComponent<MeshRenderer>();
+            if (_secondaryAttachmentOutlineSphereRenderer != null)
+            {
+                _secondaryAttachmentOutlineSphereRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                _secondaryAttachmentOutlineSphereRenderer.receiveShadows = false;
+                _secondaryAttachmentOutlineSphereRenderer.sharedMaterial = GetAttachmentOutlineMaterial();
+            }
+
+            _secondaryAttachmentOutlineSphere.SetActive(false);
+        }
+
+        if (_secondaryAttachmentSphere == null)
+        {
+            _secondaryAttachmentSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _secondaryAttachmentSphere.name = "PhysicsAttachmentJunctionSecondary";
+            _secondaryAttachmentSphere.transform.SetParent(transform, true);
+            _secondaryAttachmentSphere.layer = gameObject.layer;
+
+            var secondaryCollider = _secondaryAttachmentSphere.GetComponent<Collider>();
+            if (secondaryCollider != null)
+            {
+                Destroy(secondaryCollider);
+            }
+
+            _secondaryAttachmentSphereRenderer = _secondaryAttachmentSphere.GetComponent<MeshRenderer>();
+            if (_secondaryAttachmentSphereRenderer != null)
+            {
+                _secondaryAttachmentSphereRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                _secondaryAttachmentSphereRenderer.receiveShadows = false;
+                _secondaryAttachmentSphereRenderer.sharedMaterial = GetAttachmentMaterial();
+            }
+
+            _secondaryAttachmentSphere.SetActive(false);
+        }
+
         if (_attachmentLineRenderer == null)
         {
             var lineObject = new GameObject("PhysicsAttachmentHingeLine");
@@ -1262,13 +2152,36 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
 
         ApplyAttachmentMaterialColor();
+        ApplyAttachmentOutlineMaterialColor();
     }
 
     private void SetAttachmentVisualsVisible(bool sphereVisible, bool lineVisible)
     {
+        SetAttachmentVisualsVisible(sphereVisible, lineVisible, false);
+    }
+
+    private void SetAttachmentVisualsVisible(bool sphereVisible, bool lineVisible, bool secondarySphereVisible)
+    {
         if (_attachmentSphere != null && _attachmentSphere.activeSelf != sphereVisible)
         {
             _attachmentSphere.SetActive(sphereVisible);
+        }
+
+        if (_attachmentOutlineSphere != null && _attachmentOutlineSphere.activeSelf != sphereVisible)
+        {
+            _attachmentOutlineSphere.SetActive(sphereVisible);
+        }
+
+        if (_secondaryAttachmentSphere != null
+            && _secondaryAttachmentSphere.activeSelf != secondarySphereVisible)
+        {
+            _secondaryAttachmentSphere.SetActive(secondarySphereVisible);
+        }
+
+        if (_secondaryAttachmentOutlineSphere != null
+            && _secondaryAttachmentOutlineSphere.activeSelf != secondarySphereVisible)
+        {
+            _secondaryAttachmentOutlineSphere.SetActive(secondarySphereVisible);
         }
 
         if (_attachmentLineRenderer != null && _attachmentLineRenderer.enabled != lineVisible)
@@ -1303,6 +2216,32 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return _attachmentMaterial;
     }
 
+    private Material GetAttachmentOutlineMaterial()
+    {
+        if (_attachmentOutlineMaterial != null)
+        {
+            return _attachmentOutlineMaterial;
+        }
+
+        var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                     ?? Shader.Find("Sprites/Default")
+                     ?? Shader.Find("Unlit/Color")
+                     ?? Shader.Find("Standard");
+        if (shader == null)
+        {
+            return null;
+        }
+
+        _attachmentOutlineMaterial = new Material(shader)
+        {
+            name = "PhysicsDrawingAttachmentIndicatorOutline",
+            color = attachmentIndicatorOutlineColor,
+            enableInstancing = true
+        };
+        ApplyAttachmentOutlineMaterialColor();
+        return _attachmentOutlineMaterial;
+    }
+
     private void ApplyAttachmentMaterialColor()
     {
         if (_attachmentMaterial == null)
@@ -1319,6 +2258,30 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         if (_attachmentMaterial.HasProperty("_Color"))
         {
             _attachmentMaterial.SetColor("_Color", attachmentIndicatorColor);
+        }
+    }
+
+    private void ApplyAttachmentOutlineMaterialColor()
+    {
+        if (_attachmentOutlineMaterial == null)
+        {
+            return;
+        }
+
+        _attachmentOutlineMaterial.color = attachmentIndicatorOutlineColor;
+        if (_attachmentOutlineMaterial.HasProperty("_BaseColor"))
+        {
+            _attachmentOutlineMaterial.SetColor("_BaseColor", attachmentIndicatorOutlineColor);
+        }
+
+        if (_attachmentOutlineMaterial.HasProperty("_Color"))
+        {
+            _attachmentOutlineMaterial.SetColor("_Color", attachmentIndicatorOutlineColor);
+        }
+
+        if (_attachmentOutlineMaterial.HasProperty("_Cull"))
+        {
+            _attachmentOutlineMaterial.SetFloat("_Cull", (float)CullMode.Front);
         }
     }
 
@@ -1427,7 +2390,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
         RebuildColliders();
         RefreshEndpointHandles();
-        if (_attachedPlaceable != null && !_isApplyingAttachmentFollow)
+        if (IsAttachedToPlaceable && !_isApplyingAttachmentFollow)
         {
             CaptureAttachmentLocalGeometry();
         }

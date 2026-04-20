@@ -178,6 +178,7 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         }
 
         _directDragHandle = nearest;
+        nearest.owner?.DetachSpringEndpointForDrag(nearest.endpoint);
         nearest.SetDragging(true);
         nearest.SetEndpointWorldPosition(stylusPoint);
         nearest.MarkDirectHovered();
@@ -228,6 +229,7 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
             IsDirect = false
         };
 
+        handle.owner?.DetachSpringEndpointForDrag(handle.endpoint);
         handle.SetDragging(true);
         handle.SetEndpointWorldPosition(grabPoint);
         handle.MarkRayHovered();
@@ -260,6 +262,7 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
             IsDirect = true
         };
 
+        handle.owner?.DetachSpringEndpointForDrag(handle.endpoint);
         handle.SetDragging(true);
         handle.SetEndpointWorldPosition(grabPoint);
         handle.MarkDirectHovered();
@@ -339,6 +342,7 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         if (drag.Handle != null)
         {
             drag.Handle.SetDragging(false);
+            drag.Handle.owner?.TryAttachEndpointToPlaceableOnRelease(drag.Handle.endpoint);
         }
 
         ActiveRayDrags.Remove(sourceId);
@@ -411,6 +415,7 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         }
 
         _directDragHandle.SetDragging(false);
+        _directDragHandle.owner?.TryAttachEndpointToPlaceableOnRelease(_directDragHandle.endpoint);
         _directDragHandle = null;
     }
 
