@@ -29,11 +29,15 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
     [SerializeField] private float colliderRadius = 0.035f;
     [SerializeField] private Color hoverColor = new(1f, 1f, 1f, 0.82f);
     [SerializeField] private Color dragColor = new(0.2f, 0.85f, 1f, 0.95f);
+    [SerializeField] private Color unattachedBorderColor = new(0.42f, 0.42f, 0.42f, 0.5f);
+    [SerializeField] private Color attachedBorderColor = new(0f, 0f, 0f, 0.78f);
 
     private MeshRenderer _renderer;
+    private MeshRenderer _borderRenderer;
     private MeshFilter _meshFilter;
     private SphereCollider _collider;
     private Material _material;
+    private Material _borderMaterial;
     private bool _isDragging;
     private int _lastRayHoverFrame = -1000;
     private int _lastDirectHoverFrame = -1000;
@@ -88,6 +92,11 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         {
             Destroy(_material);
         }
+
+        if (_borderMaterial != null)
+        {
+            Destroy(_borderMaterial);
+        }
     }
 
     public void Configure(
@@ -109,6 +118,7 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         transform.localScale = Vector3.one * visualDiameter;
         _collider.radius = Mathf.Max(0.5f, colliderRadius / visualDiameter);
         SetMaterialColor(_isDragging ? dragColor : hoverColor);
+        ApplyBorderMaterialColor();
         RefreshVisibility();
     }
 
@@ -374,6 +384,108 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         return false;
     }
 
+    public static bool TryFindNearestDirectHandle(
+        Vector3 point,
+        float radius,
+        out PhysicsDrawingEndpointHandle handle)
+    {
+        handle = null;
+        var bestDistance = float.MaxValue;
+        radius = Mathf.Max(0.001f, radius);
+
+        for (var i = AllHandles.Count - 1; i >= 0; i--)
+        {
+            var candidate = AllHandles[i];
+            if (candidate == null)
+            {
+                AllHandles.RemoveAt(i);
+                continue;
+            }
+
+            if (!candidate.isActiveAndEnabled || !candidate.IsEditable)
+            {
+                continue;
+            }
+
+            var hoverRadius = Mathf.Max(
+                radius,
+                candidate.colliderRadius,
+                candidate.visualDiameter * 0.5f);
+            var distance = Vector3.Distance(point, candidate.transform.position);
+            if (distance > hoverRadius || distance >= bestDistance)
+            {
+                continue;
+            }
+
+            handle = candidate;
+            bestDistance = distance;
+        }
+
+        return handle != null;
+    }
+
+    public static bool TryFindNearestRayHandle(
+        Vector3 origin,
+        Vector3 direction,
+        float maxDistance,
+        out PhysicsDrawingEndpointHandle handle,
+        out float hitDistance,
+        out Vector3 hitPoint)
+    {
+        handle = null;
+        hitDistance = 0f;
+        hitPoint = default;
+        if (direction.sqrMagnitude <= 0.0001f)
+        {
+            return false;
+        }
+
+        direction.Normalize();
+        maxDistance = Mathf.Max(0.01f, maxDistance);
+        var bestDistanceToRay = float.MaxValue;
+        var bestRayDistance = float.MaxValue;
+
+        for (var i = AllHandles.Count - 1; i >= 0; i--)
+        {
+            var candidate = AllHandles[i];
+            if (candidate == null)
+            {
+                AllHandles.RemoveAt(i);
+                continue;
+            }
+
+            if (!candidate.isActiveAndEnabled || !candidate.IsEditable)
+            {
+                continue;
+            }
+
+            var toHandle = candidate.transform.position - origin;
+            var rayDistance = Mathf.Clamp(Vector3.Dot(toHandle, direction), 0f, maxDistance);
+            var closestPoint = origin + direction * rayDistance;
+            var distanceToRay = Vector3.Distance(candidate.transform.position, closestPoint);
+            var hoverRadius = Mathf.Max(candidate.colliderRadius, candidate.visualDiameter * 0.5f) * 2.2f;
+            if (distanceToRay > hoverRadius)
+            {
+                continue;
+            }
+
+            if (distanceToRay > bestDistanceToRay + 0.0001f
+                || (Mathf.Abs(distanceToRay - bestDistanceToRay) <= 0.0001f
+                    && rayDistance >= bestRayDistance))
+            {
+                continue;
+            }
+
+            handle = candidate;
+            hitDistance = rayDistance;
+            hitPoint = closestPoint;
+            bestRayDistance = rayDistance;
+            bestDistanceToRay = distanceToRay;
+        }
+
+        return handle != null;
+    }
+
     private static PhysicsDrawingEndpointHandle FindNearestDirectHandle(Vector3 stylusPoint)
     {
         PhysicsDrawingEndpointHandle nearest = null;
@@ -532,6 +644,8 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
             _renderer.sharedMaterial = _material;
         }
 
+        EnsureBorderVisual();
+
         if (_collider == null)
         {
             _collider = GetComponent<SphereCollider>();
@@ -548,6 +662,19 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         if (_renderer.enabled != visible)
         {
             _renderer.enabled = visible;
+        }
+
+        if (_borderRenderer != null)
+        {
+            if (_borderRenderer.enabled != visible)
+            {
+                _borderRenderer.enabled = visible;
+            }
+
+            if (visible)
+            {
+                ApplyBorderMaterialColor();
+            }
         }
     }
 
@@ -569,6 +696,77 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         {
             _material.SetColor("_Color", color);
         }
+
+        ApplyBorderMaterialColor();
+    }
+
+    private void EnsureBorderVisual()
+    {
+        if (_borderRenderer != null)
+        {
+            return;
+        }
+
+        var borderObject = new GameObject("EndpointBorder");
+        borderObject.transform.SetParent(transform, false);
+        borderObject.transform.localPosition = Vector3.zero;
+        borderObject.transform.localRotation = Quaternion.identity;
+        borderObject.transform.localScale = Vector3.one * 1.24f;
+        borderObject.layer = gameObject.layer;
+
+        var borderMeshFilter = borderObject.AddComponent<MeshFilter>();
+        borderMeshFilter.sharedMesh = GetOrCreateSphereMesh();
+        _borderRenderer = borderObject.AddComponent<MeshRenderer>();
+        _borderRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        _borderRenderer.receiveShadows = false;
+
+        if (_borderMaterial == null)
+        {
+            _borderMaterial = CreateBorderMaterial(ResolveBorderColor());
+            if (_borderMaterial != null)
+            {
+                _borderMaterial.renderQueue = (int)RenderQueue.Transparent + 29;
+            }
+        }
+
+        if (_borderMaterial != null)
+        {
+            _borderRenderer.sharedMaterial = _borderMaterial;
+        }
+
+        _borderRenderer.enabled = false;
+    }
+
+    private void ApplyBorderMaterialColor()
+    {
+        EnsureBorderVisual();
+        if (_borderMaterial == null)
+        {
+            return;
+        }
+
+        var color = ResolveBorderColor();
+        _borderMaterial.color = color;
+        if (_borderMaterial.HasProperty("_BaseColor"))
+        {
+            _borderMaterial.SetColor("_BaseColor", color);
+        }
+
+        if (_borderMaterial.HasProperty("_Color"))
+        {
+            _borderMaterial.SetColor("_Color", color);
+        }
+    }
+
+    private Color ResolveBorderColor()
+    {
+        return IsAttachedEndpoint() ? attachedBorderColor : unattachedBorderColor;
+    }
+
+    private bool IsAttachedEndpoint()
+    {
+        return owner != null
+               && owner.TryGetSpringEndpointAttachment(endpoint, out _, out _);
     }
 
     private static void MarkAnyInteraction()
@@ -627,7 +825,61 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
         material.DisableKeyword("_ALPHATEST_ON");
         material.EnableKeyword("_ALPHABLEND_ON");
         material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        material.renderQueue = (int)RenderQueue.Transparent;
+        material.renderQueue = (int)RenderQueue.Transparent + 30;
+        return material;
+    }
+
+    private static Material CreateBorderMaterial(Color color)
+    {
+        var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                     ?? Shader.Find("Sprites/Default")
+                     ?? Shader.Find("Unlit/Color")
+                     ?? Shader.Find("Standard");
+        if (shader == null)
+        {
+            return null;
+        }
+
+        var material = new Material(shader)
+        {
+            name = "PhysicsDrawingEndpointBorder",
+            color = color,
+            enableInstancing = true
+        };
+
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
+
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+        }
+
+        if (material.HasProperty("_Blend"))
+        {
+            material.SetFloat("_Blend", 0f);
+        }
+
+        if (material.HasProperty("_Cull"))
+        {
+            material.SetFloat("_Cull", (float)CullMode.Off);
+        }
+
+        material.SetOverrideTag("RenderType", "Transparent");
+        material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+        material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+        material.SetInt("_ZWrite", 0);
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.EnableKeyword("_ALPHABLEND_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.renderQueue = (int)RenderQueue.Transparent + 29;
         return material;
     }
 

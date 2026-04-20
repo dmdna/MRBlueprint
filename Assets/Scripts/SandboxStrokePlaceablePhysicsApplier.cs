@@ -1,122 +1,390 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Phase D4 — when a stroke is finalized into a <see cref="PhysicsDrawingSelectable"/>, applies intent to nearby
-/// <see cref="PlaceableAsset"/> rigidbodies (flick → impulse, straight line → spring). Only runs in
-/// <see cref="SandboxEditorSessionMode.Draw"/> and not during sandbox simulation.
+/// Arms physics drawings when sandbox simulation starts. Edit-mode drawings only describe intent; this class
+/// turns attached springs, impulses, and hinges into runtime force drivers and removes them on exit/restart.
 /// </summary>
 public static class SandboxStrokePlaceablePhysicsApplier
 {
     private const float EndpointResolveRadius = 0.14f;
-    private const float ImpulseStrengthMin = 1.2f;
-    private const float ImpulseStrengthMax = 9f;
-    private const float SpringMin = 8f;
-    private const float SpringMax = 140f;
-    private const float DamperMin = 0.6f;
-    private const float DamperMax = 12f;
+    private const float SegmentResolveRadius = 0.08f;
+    private const float ImpulseInstantMin = 1.2f;
+    private const float ImpulseInstantMax = 9f;
+    private const float ImpulseContinuousMin = 2f;
+    private const float ImpulseContinuousMax = 28f;
+    private const float SpringForceMin = 10f;
+    private const float SpringForceMax = 180f;
+    private const float SpringDamperMin = 0.8f;
+    private const float SpringDamperMax = 16f;
+    private const float HingeStiffnessMin = 80f;
+    private const float HingeStiffnessMax = 680f;
+    private const float HingeDamperMin = 8f;
+    private const float HingeDamperMax = 42f;
 
-    /// <summary>Called from <see cref="PhysicsDrawingSelectable.Initialize"/> after geometry is built.</summary>
-    public static void TryApplyFromDrawing(PhysicsDrawingSelectable drawing)
+    private static readonly List<SandboxDrawingPhysicsRuntime> ActiveRuntimes = new();
+
+    public static void ActivateAllDrawingPhysics()
     {
-        if (drawing == null)
-            return;
+        DeactivateAllDrawingPhysics();
 
-        if (SandboxEditorModeState.Current != SandboxEditorSessionMode.Draw)
-            return;
+        var drawings = Object.FindObjectsByType<PhysicsDrawingSelectable>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        for (var i = 0; i < drawings.Length; i++)
+        {
+            TryActivateDrawing(drawings[i]);
+        }
+    }
 
-        var sim = SandboxSimulationController.Instance;
-        if (sim != null && sim.IsSimulating)
+    public static void DeactivateAllDrawingPhysics()
+    {
+        for (var i = ActiveRuntimes.Count - 1; i >= 0; i--)
+        {
+            DestroyRuntime(ActiveRuntimes[i]);
+        }
+
+        ActiveRuntimes.Clear();
+
+        var orphaned = Object.FindObjectsByType<SandboxDrawingPhysicsRuntime>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (var i = 0; i < orphaned.Length; i++)
+        {
+            DestroyRuntime(orphaned[i]);
+        }
+    }
+
+    private static void TryActivateDrawing(PhysicsDrawingSelectable drawing)
+    {
+        if (drawing == null || !drawing.isActiveAndEnabled)
+        {
             return;
+        }
 
         switch (drawing.PhysicsIntent)
         {
-            case PhysicsIntentType.Impulse:
-                TryApplyImpulse(drawing);
-                break;
             case PhysicsIntentType.Spring:
-                TryApplySpring(drawing);
+                TryActivateSpring(drawing);
+                break;
+            case PhysicsIntentType.Impulse:
+                TryActivateImpulse(drawing);
+                break;
+            case PhysicsIntentType.Hinge:
+                TryActivateHinge(drawing);
                 break;
         }
     }
 
-    private static bool IsUserPlaceableRigidbody(Rigidbody rb)
-    {
-        if (rb == null)
-            return false;
-        if (rb.GetComponentInParent<PlaceableAsset>() == null)
-            return false;
-        return rb.GetComponentInParent<SpawnTemplateMarker>() == null;
-    }
-
-    private static bool TryResolvePlaceableAt(Vector3 worldPos, out Rigidbody rb)
-    {
-        rb = null;
-        var hits = Physics.OverlapSphere(worldPos, EndpointResolveRadius, Physics.DefaultRaycastLayers,
-            QueryTriggerInteraction.Ignore);
-        var bestSq = float.MaxValue;
-        for (var i = 0; i < hits.Length; i++)
-        {
-            var c = hits[i];
-            var r = c.attachedRigidbody;
-            if (!IsUserPlaceableRigidbody(r))
-                continue;
-
-            var p = r.transform.position;
-            var d = (p - worldPos).sqrMagnitude;
-            if (d < bestSq)
-            {
-                bestSq = d;
-                rb = r;
-            }
-        }
-
-        return rb != null;
-    }
-
-    private static void TryApplyImpulse(PhysicsDrawingSelectable drawing)
+    private static void TryActivateSpring(PhysicsDrawingSelectable drawing)
     {
         var positions = drawing.GetWorldLinePositions();
         if (positions.Length < 2)
+        {
             return;
+        }
+
+        if (!TryResolveSpringAnchor(drawing, PhysicsDrawingEndpoint.Start, positions[0], out var start)
+            || !TryResolveSpringAnchor(
+                drawing,
+                PhysicsDrawingEndpoint.End,
+                positions[positions.Length - 1],
+                out var end)
+            || start.Body == end.Body)
+        {
+            return;
+        }
+
+        var runtime = drawing.gameObject.AddComponent<SandboxDrawingPhysicsRuntime>();
+        runtime.ConfigureSpring(
+            drawing,
+            start.Body,
+            start.LocalPoint,
+            end.Body,
+            end.LocalPoint,
+            Mathf.Lerp(SpringForceMin, SpringForceMax, drawing.SpringStiffness),
+            Mathf.Lerp(SpringDamperMin, SpringDamperMax, drawing.SpringStiffness));
+        ActiveRuntimes.Add(runtime);
+    }
+
+    private static void TryActivateImpulse(PhysicsDrawingSelectable drawing)
+    {
+        if (!TryResolveImpulseAnchor(
+                drawing,
+                out var body,
+                out var localPoint,
+                out var direction,
+                out var directionFollowsBody))
+        {
+            return;
+        }
+
+        var strength = drawing.ImpulseInstant
+            ? Mathf.Lerp(ImpulseInstantMin, ImpulseInstantMax, drawing.ImpulseForce)
+            : Mathf.Lerp(ImpulseContinuousMin, ImpulseContinuousMax, drawing.ImpulseForce);
+        var runtime = drawing.gameObject.AddComponent<SandboxDrawingPhysicsRuntime>();
+        runtime.ConfigureImpulse(
+            drawing,
+            body,
+            localPoint,
+            direction,
+            strength,
+            drawing.ImpulseInstant,
+            directionFollowsBody);
+        ActiveRuntimes.Add(runtime);
+    }
+
+    private static void TryActivateHinge(PhysicsDrawingSelectable drawing)
+    {
+        if (!drawing.TryGetHingeAttachment(
+                out var placeable,
+                out var pivot,
+                out var bodyPoint,
+                out var stringLength)
+            || !TryGetUserPlaceableRigidbody(placeable, out var body))
+        {
+            return;
+        }
+
+        var runtime = drawing.gameObject.AddComponent<SandboxDrawingPhysicsRuntime>();
+        runtime.ConfigureHinge(
+            drawing,
+            body,
+            body.transform.InverseTransformPoint(bodyPoint),
+            pivot,
+            stringLength,
+            Mathf.Lerp(HingeStiffnessMin, HingeStiffnessMax, drawing.HingeTorque),
+            Mathf.Lerp(HingeDamperMin, HingeDamperMax, drawing.HingeTorque));
+        ActiveRuntimes.Add(runtime);
+    }
+
+    private static bool TryResolveSpringAnchor(
+        PhysicsDrawingSelectable drawing,
+        PhysicsDrawingEndpoint endpoint,
+        Vector3 fallbackPoint,
+        out RuntimeAnchor anchor)
+    {
+        anchor = default;
+        if (drawing.TryGetSpringEndpointAttachment(endpoint, out var placeable, out var worldPoint)
+            && TryGetUserPlaceableRigidbody(placeable, out var attachedBody))
+        {
+            anchor = new RuntimeAnchor(attachedBody, attachedBody.transform.InverseTransformPoint(worldPoint));
+            return true;
+        }
+
+        return TryResolvePlaceableAt(fallbackPoint, EndpointResolveRadius, out anchor);
+    }
+
+    private static bool TryResolveImpulseAnchor(
+        PhysicsDrawingSelectable drawing,
+        out Rigidbody body,
+        out Vector3 localPoint,
+        out Vector3 direction,
+        out bool directionFollowsBody)
+    {
+        body = null;
+        localPoint = default;
+        direction = default;
+        directionFollowsBody = false;
+        if (drawing.TryGetImpulseAttachment(out var placeable, out var junction, out direction)
+            && TryGetUserPlaceableRigidbody(placeable, out body))
+        {
+            localPoint = body.transform.InverseTransformPoint(junction);
+            directionFollowsBody = true;
+            return true;
+        }
+
+        var positions = drawing.GetWorldLinePositions();
+        if (positions.Length < 2)
+        {
+            return false;
+        }
 
         var start = positions[0];
-        var end = positions[^1];
-        var dir = end - start;
-        if (dir.sqrMagnitude < 1e-8f)
-            return;
-        dir.Normalize();
+        var end = positions[positions.Length - 1];
+        direction = end - start;
+        if (direction.sqrMagnitude <= 0.000001f)
+        {
+            return false;
+        }
 
-        var mid = (start + end) * 0.5f;
-        if (!TryResolvePlaceableAt(mid, out var rb))
-            return;
+        direction.Normalize();
+        if (!TryResolvePlaceableAlongSegment(start, end, out var anchor))
+        {
+            return false;
+        }
 
-        var mag = Mathf.Lerp(ImpulseStrengthMin, ImpulseStrengthMax, drawing.ImpulseForce);
-        rb.AddForce(dir * mag, ForceMode.Impulse);
+        body = anchor.Body;
+        localPoint = anchor.LocalPoint;
+        return true;
     }
 
-    private static void TryApplySpring(PhysicsDrawingSelectable drawing)
+    private static bool TryResolvePlaceableAlongSegment(
+        Vector3 start,
+        Vector3 end,
+        out RuntimeAnchor anchor)
     {
-        var positions = drawing.GetWorldLinePositions();
-        if (positions.Length < 2)
-            return;
+        anchor = default;
+        if (TryResolvePlaceableAt(start, EndpointResolveRadius, out anchor)
+            || TryResolvePlaceableAt(end, EndpointResolveRadius, out anchor)
+            || TryResolvePlaceableAt((start + end) * 0.5f, EndpointResolveRadius, out anchor))
+        {
+            return true;
+        }
 
-        var wStart = positions[0];
-        var wEnd = positions[^1];
-        if (!TryResolvePlaceableAt(wStart, out var rbA) || !TryResolvePlaceableAt(wEnd, out var rbB))
-            return;
-        if (rbA == rbB)
-            return;
+        var segment = end - start;
+        var length = segment.magnitude;
+        if (length <= 0.0001f)
+        {
+            return false;
+        }
 
-        var joint = rbA.gameObject.AddComponent<SpringJoint>();
-        joint.connectedBody = rbB;
-        joint.autoConfigureConnectedAnchor = false;
-        joint.anchor = rbA.transform.InverseTransformPoint(wStart);
-        joint.connectedAnchor = rbB.transform.InverseTransformPoint(wEnd);
-        joint.spring = Mathf.Lerp(SpringMin, SpringMax, drawing.SpringStiffness);
-        joint.damper = Mathf.Lerp(DamperMin, DamperMax, drawing.SpringStiffness);
-        var rest = Vector3.Distance(wStart, wEnd);
-        joint.minDistance = Mathf.Max(0.01f, rest * 0.85f);
-        joint.maxDistance = Mathf.Max(joint.minDistance + 0.02f, rest * 1.25f);
-        joint.enableCollision = false;
+        var hits = Physics.SphereCastAll(
+            start,
+            SegmentResolveRadius,
+            segment / length,
+            length,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Ignore);
+        var bestDistance = float.MaxValue;
+        RuntimeAnchor best = default;
+        var hasBest = false;
+        for (var i = 0; i < hits.Length; i++)
+        {
+            var collider = hits[i].collider;
+            if (!TryGetUserPlaceableRigidbody(collider, out var body))
+            {
+                continue;
+            }
+
+            var point = hits[i].point;
+            if (point == Vector3.zero)
+            {
+                point = ClosestPointOnSegment(start, end, body.worldCenterOfMass);
+            }
+
+            if (hits[i].distance >= bestDistance)
+            {
+                continue;
+            }
+
+            hasBest = true;
+            bestDistance = hits[i].distance;
+            best = new RuntimeAnchor(body, body.transform.InverseTransformPoint(point));
+        }
+
+        if (!hasBest)
+        {
+            return false;
+        }
+
+        anchor = best;
+        return true;
+    }
+
+    private static bool TryResolvePlaceableAt(
+        Vector3 worldPos,
+        float radius,
+        out RuntimeAnchor anchor)
+    {
+        anchor = default;
+        var hits = Physics.OverlapSphere(
+            worldPos,
+            radius,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Ignore);
+        var bestSq = float.MaxValue;
+        var hasBest = false;
+        for (var i = 0; i < hits.Length; i++)
+        {
+            var collider = hits[i];
+            if (!TryGetUserPlaceableRigidbody(collider, out var body))
+            {
+                continue;
+            }
+
+            var point = collider.ClosestPoint(worldPos);
+            if ((point - worldPos).sqrMagnitude <= 0.00000025f)
+            {
+                point = worldPos;
+            }
+
+            var distanceSq = (point - worldPos).sqrMagnitude;
+            if (distanceSq >= bestSq)
+            {
+                continue;
+            }
+
+            hasBest = true;
+            bestSq = distanceSq;
+            anchor = new RuntimeAnchor(body, body.transform.InverseTransformPoint(point));
+        }
+
+        return hasBest;
+    }
+
+    private static bool TryGetUserPlaceableRigidbody(
+        PlaceableAsset placeable,
+        out Rigidbody body)
+    {
+        body = placeable != null ? placeable.Rigidbody : null;
+        return IsUserPlaceableRigidbody(body);
+    }
+
+    private static bool TryGetUserPlaceableRigidbody(
+        Collider collider,
+        out Rigidbody body)
+    {
+        body = collider != null ? collider.attachedRigidbody : null;
+        return IsUserPlaceableRigidbody(body);
+    }
+
+    private static bool IsUserPlaceableRigidbody(Rigidbody body)
+    {
+        return body != null
+               && body.GetComponentInParent<PlaceableAsset>() != null
+               && body.GetComponentInParent<SpawnTemplateMarker>() == null;
+    }
+
+    private static void DestroyRuntime(SandboxDrawingPhysicsRuntime runtime)
+    {
+        if (runtime == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Object.Destroy(runtime);
+        }
+        else
+        {
+            Object.DestroyImmediate(runtime);
+        }
+    }
+
+    private static Vector3 ClosestPointOnSegment(Vector3 start, Vector3 end, Vector3 point)
+    {
+        var segment = end - start;
+        var lengthSq = segment.sqrMagnitude;
+        if (lengthSq <= 0.00000001f)
+        {
+            return start;
+        }
+
+        var t = Vector3.Dot(point - start, segment) / lengthSq;
+        return start + segment * Mathf.Clamp01(t);
+    }
+
+    private readonly struct RuntimeAnchor
+    {
+        public readonly Rigidbody Body;
+        public readonly Vector3 LocalPoint;
+
+        public RuntimeAnchor(Rigidbody body, Vector3 localPoint)
+        {
+            Body = body;
+            LocalPoint = localPoint;
+        }
     }
 }

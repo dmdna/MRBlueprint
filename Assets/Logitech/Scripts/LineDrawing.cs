@@ -220,6 +220,11 @@ public class LineDrawing : MonoBehaviour
         {
             selectable.SetImpulseForce(pressureSettingValue);
         }
+
+        if (selectable.CanAttachToPlaceable)
+        {
+            selectable.TryAttachToPlaceablesOnRelease();
+        }
     }
 
     private void RecordPressureSample(float pressure)

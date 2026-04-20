@@ -66,10 +66,10 @@ public class XRDrawerSpawner : MonoBehaviour
             rb.angularVelocity = Vector3.zero;
         }
 
-        var placeable = instance.GetComponent<PlaceableAsset>()
-                        ?? instance.GetComponentInChildren<PlaceableAsset>(true);
-        if (placeable != null && AssetSelectionManager.Instance != null)
-            AssetSelectionManager.Instance.SelectAsset(placeable);
+        if (AssetSelectionManager.Instance != null)
+        {
+            AssetSelectionManager.Instance.ClearSelection();
+        }
     }
 
     private Vector3 ResolveSpawnPosition()

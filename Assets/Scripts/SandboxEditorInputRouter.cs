@@ -44,6 +44,8 @@ public class SandboxEditorInputRouter : MonoBehaviour
     private readonly List<UnityEngine.XR.InputDevice> _xrDevices = new();
     private bool _leftPrimaryWasPressed;
     private bool _rightPrimaryWasPressed;
+    private bool _leftSecondaryWasPressed;
+    private bool _rightSecondaryWasPressed;
     private bool _leftMenuWasPressed;
 
     private void Reset()
@@ -81,6 +83,22 @@ public class SandboxEditorInputRouter : MonoBehaviour
             ResolveToolbarFrame();
             if (toolbarFrame != null)
                 toolbarFrame.ToggleToolbarVisible();
+        }
+
+        var leftSecondaryPressed = IsControllerSecondaryPressed(LeftControllerCharacteristics);
+        var rightSecondaryPressed = IsControllerSecondaryPressed(RightControllerCharacteristics);
+        var secondaryPressedThisFrame =
+            (leftSecondaryPressed && !_leftSecondaryWasPressed) ||
+            (rightSecondaryPressed && !_rightSecondaryWasPressed);
+
+        _leftSecondaryWasPressed = leftSecondaryPressed;
+        _rightSecondaryWasPressed = rightSecondaryPressed;
+
+        if (secondaryPressedThisFrame)
+        {
+            ResolveToolbarFrame();
+            if (toolbarFrame != null)
+                toolbarFrame.ToggleSimulationShortcut();
         }
 
         var leftMenuPressed = IsControllerMenuPressed(LeftControllerCharacteristics);
@@ -241,6 +259,11 @@ public class SandboxEditorInputRouter : MonoBehaviour
     private bool IsControllerPrimaryPressed(UnityEngine.XR.InputDeviceCharacteristics characteristics)
     {
         return IsControllerButtonPressed(characteristics, UnityEngine.XR.CommonUsages.primaryButton);
+    }
+
+    private bool IsControllerSecondaryPressed(UnityEngine.XR.InputDeviceCharacteristics characteristics)
+    {
+        return IsControllerButtonPressed(characteristics, UnityEngine.XR.CommonUsages.secondaryButton);
     }
 
     private bool IsControllerMenuPressed(UnityEngine.XR.InputDeviceCharacteristics characteristics)

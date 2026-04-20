@@ -317,7 +317,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                                   PlaceableMultiGrabCoordinator.MXInkSourceId)
                               || _stylusGizmoDragging;
         var isVisible = stylusIsVisible && (modeIsVisible || hasManualTarget);
-        var useManualLine = isVisible && pointerState.IsUsable && hasManualTarget;
+        var useManualLine = isVisible && pointerState.IsUsable && (hasManualTarget || isEditMode);
 
         if (useManualLine)
         {
@@ -817,7 +817,13 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             hitGizmoPart = null;
             hitDrawing = null;
             hitEndpointHandle = null;
-            return false;
+            return TryResolveEndpointRayFallback(
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitDrawing,
+                out hitEndpointHandle);
         }
 
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
@@ -835,6 +841,17 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                 firstHit = hit;
                 return true;
             }
+        }
+
+        if (TryResolveEndpointRayFallback(
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitDrawing,
+                out hitEndpointHandle))
+        {
+            return true;
         }
 
         foreach (var hit in hits)
@@ -875,6 +892,35 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             }
         }
 
+        return false;
+    }
+
+    private static bool TryResolveEndpointRayFallback(
+        Vector3 origin,
+        Vector3 direction,
+        float maxDistance,
+        out RaycastHit hit,
+        out PhysicsDrawingSelectable drawing,
+        out PhysicsDrawingEndpointHandle endpointHandle)
+    {
+        hit = default;
+        drawing = null;
+        endpointHandle = null;
+        if (!PhysicsDrawingEndpointHandle.TryFindNearestRayHandle(
+                origin,
+                direction,
+                maxDistance,
+                out endpointHandle,
+                out var hitDistance,
+                out var hitPoint))
+        {
+            return false;
+        }
+
+        endpointHandle.MarkRayHovered();
+        drawing = endpointHandle.Owner;
+        hit.distance = hitDistance;
+        hit.point = hitPoint;
         return true;
     }
 

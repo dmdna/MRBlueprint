@@ -45,7 +45,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private const int LeftPointerId = -12001;
     private const int RightPointerId = -12002;
     private const int EndMarkerSegments = 32;
-    private static readonly Color ControllerRayColor = new(1f, 1f, 1f, 0.35f);
+    private static readonly Color ControllerRayColor = new(0.78f, 0.78f, 0.78f, 0.38f);
 
     private ControllerRayState _leftRay;
     private ControllerRayState _rightRay;
@@ -148,6 +148,21 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             pointerState.HasDirectHit = true;
             pointerState.DirectPoint = origin;
             pointerState.RayVisible = true;
+            SetDirectMarker(rayState, origin, direction);
+            return pointerState;
+        }
+
+        if (PhysicsDrawingEndpointHandle.TryFindNearestDirectHandle(
+                origin,
+                ResolveDirectInteractionRadius(),
+                out var directEndpoint))
+        {
+            pointerState.HasDirectHit = true;
+            pointerState.DirectPoint = origin;
+            pointerState.HoveredDrawing = directEndpoint.Owner;
+            pointerState.HoveredDrawingEndpoint = directEndpoint;
+            pointerState.RayVisible = true;
+            directEndpoint.MarkDirectHovered();
             SetDirectMarker(rayState, origin, direction);
             return pointerState;
         }
@@ -274,7 +289,13 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             hitGizmoPart = null;
             hitDrawing = null;
             hitEndpointHandle = null;
-            return false;
+            return TryResolveEndpointRayFallback(
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitDrawing,
+                out hitEndpointHandle);
         }
 
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
@@ -303,6 +324,17 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 firstHit = hit;
                 return true;
             }
+        }
+
+        if (TryResolveEndpointRayFallback(
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitDrawing,
+                out hitEndpointHandle))
+        {
+            return true;
         }
 
         foreach (var hit in hits)
@@ -343,6 +375,35 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             }
         }
 
+        return false;
+    }
+
+    private static bool TryResolveEndpointRayFallback(
+        Vector3 origin,
+        Vector3 direction,
+        float maxDistance,
+        out RaycastHit hit,
+        out PhysicsDrawingSelectable drawing,
+        out PhysicsDrawingEndpointHandle endpointHandle)
+    {
+        hit = default;
+        drawing = null;
+        endpointHandle = null;
+        if (!PhysicsDrawingEndpointHandle.TryFindNearestRayHandle(
+                origin,
+                direction,
+                maxDistance,
+                out endpointHandle,
+                out var hitDistance,
+                out var hitPoint))
+        {
+            return false;
+        }
+
+        endpointHandle.MarkRayHovered();
+        drawing = endpointHandle.Owner;
+        hit.distance = hitDistance;
+        hit.point = hitPoint;
         return true;
     }
 

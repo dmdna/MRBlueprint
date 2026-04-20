@@ -36,6 +36,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     [SerializeField] private float linearAttachmentSurfaceOffset = 0.004f;
     [SerializeField] private float attachmentIndicatorDiameter = 0.06f;
     [SerializeField] private float hingeAttachmentLineWidth = 0.01f;
+    [SerializeField, Range(0.05f, 1f)] private float attachedHingeAlpha = 0.38f;
     [SerializeField] private Color attachmentIndicatorColor = Color.white;
     [SerializeField] private Color attachmentIndicatorOutlineColor = Color.black;
 
@@ -130,10 +131,17 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         linearAttachmentSurfaceOffset = Mathf.Max(0f, linearAttachmentSurfaceOffset);
         attachmentIndicatorDiameter = Mathf.Max(0.001f, attachmentIndicatorDiameter);
         hingeAttachmentLineWidth = Mathf.Max(0.001f, hingeAttachmentLineWidth);
+        attachedHingeAlpha = Mathf.Clamp(attachedHingeAlpha, 0.05f, 1f);
     }
 
     private void LateUpdate()
     {
+        if (physicsIntent == PhysicsIntentType.Hinge && IsSandboxSimulationActive())
+        {
+            RefreshAttachmentVisual();
+            return;
+        }
+
         FollowAttachedPlaceable();
     }
 
@@ -188,8 +196,6 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         RefreshPhysicsColor();
         RebuildColliders();
         ApplyHighlightState();
-
-        SandboxStrokePlaceablePhysicsApplier.TryApplyFromDrawing(this);
     }
 
     public void SetHovered(bool hovered)
@@ -517,6 +523,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         _attachedLinearEndpoint = linearEndpoint;
         CaptureAttachmentLocalGeometry();
         RefreshAttachmentVisual();
+        ApplyHighlightState();
         return true;
     }
 
@@ -628,6 +635,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         _hasAttachedLocalPose = false;
         _previewPlaceable = null;
         SetAttachmentVisualsVisible(false, false);
+        ApplyHighlightState();
     }
 
     private bool AttachSpringEndpoint(PlaceableAsset placeable, LinearAttachmentProbe probe)
@@ -731,6 +739,79 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return handle != null && handle.isActiveAndEnabled;
     }
 
+    public bool TryGetSpringEndpointAttachment(
+        PhysicsDrawingEndpoint endpoint,
+        out PlaceableAsset placeable,
+        out Vector3 worldPoint)
+    {
+        placeable = null;
+        worldPoint = default;
+        if (physicsIntent != PhysicsIntentType.Spring)
+        {
+            return false;
+        }
+
+        placeable = endpoint == PhysicsDrawingEndpoint.Start
+            ? _attachedStartPlaceable
+            : _attachedEndPlaceable;
+        if (placeable == null)
+        {
+            return false;
+        }
+
+        worldPoint = endpoint == PhysicsDrawingEndpoint.Start
+            ? placeable.transform.TransformPoint(_attachedStartLocalPoint)
+            : placeable.transform.TransformPoint(_attachedEndLocalPoint);
+        return true;
+    }
+
+    public bool TryGetImpulseAttachment(
+        out PlaceableAsset placeable,
+        out Vector3 junction,
+        out Vector3 direction)
+    {
+        placeable = _attachedPlaceable;
+        junction = default;
+        direction = default;
+        if (physicsIntent != PhysicsIntentType.Impulse
+            || placeable == null
+            || !TryResolveImpulseDirection(out direction))
+        {
+            return false;
+        }
+
+        junction = ResolveLinearEndpointWorldPosition(_attachedLinearEndpoint);
+        if (TryResolveLinearAttachmentProbeForEndpoint(
+                placeable,
+                _attachedLinearEndpoint,
+                out var probe))
+        {
+            junction = probe.JunctionPoint;
+        }
+
+        return true;
+    }
+
+    public bool TryGetHingeAttachment(
+        out PlaceableAsset placeable,
+        out Vector3 pivot,
+        out Vector3 bodyPoint,
+        out float stringLength)
+    {
+        placeable = _attachedPlaceable;
+        pivot = ResolveHingeAttachmentCenter();
+        bodyPoint = default;
+        stringLength = 0f;
+        if (physicsIntent != PhysicsIntentType.Hinge || placeable == null)
+        {
+            return false;
+        }
+
+        bodyPoint = ResolveHingeAttachmentBodyPoint(placeable);
+        stringLength = Mathf.Max(0.01f, Vector3.Distance(pivot, bodyPoint));
+        return true;
+    }
+
     public void Delete()
     {
         if (AssetSelectionManager.Instance != null
@@ -831,7 +912,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         if (physicsIntent == PhysicsIntentType.Hinge)
         {
             junctionPoint = ResolveHingeAttachmentCenter();
-            return TryGetDistanceToPlaceable(placeable, junctionPoint, out distance);
+            return TryResolveHingeRingAttachmentPoint(placeable, out _, out distance);
         }
 
         if (!TryResolveLinearAttachmentProbe(placeable, out var probe))
@@ -1532,6 +1613,189 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return CalculateWorldBoundsCenter(positions);
     }
 
+    private bool TryResolveImpulseDirection(out Vector3 direction)
+    {
+        direction = Vector3.zero;
+        var positions = GetWorldLinePositions();
+        if (positions.Length < 2)
+        {
+            return false;
+        }
+
+        var start = positions[0];
+        var end = GetVisualEndpointWorldPosition(positions);
+        direction = end - start;
+        if (direction.sqrMagnitude <= 0.000001f)
+        {
+            return false;
+        }
+
+        direction.Normalize();
+        return true;
+    }
+
+    private Vector3 ResolveHingeAttachmentBodyPoint(PlaceableAsset placeable)
+    {
+        return TryResolveHingeRingAttachmentPoint(placeable, out var bodyPoint, out _)
+            ? bodyPoint
+            : ResolvePlaceableCenter(placeable);
+    }
+
+    private bool TryResolveHingeRingAttachmentPoint(
+        PlaceableAsset placeable,
+        out Vector3 bodyPoint,
+        out float distance)
+    {
+        bodyPoint = default;
+        distance = float.MaxValue;
+        if (placeable == null || physicsIntent != PhysicsIntentType.Hinge)
+        {
+            return false;
+        }
+
+        var positions = GetWorldLinePositions();
+        if (positions.Length < 2)
+        {
+            return false;
+        }
+
+        var hasCandidate = false;
+        var colliders = placeable.GetComponentsInChildren<Collider>();
+        for (var i = 0; i < colliders.Length; i++)
+        {
+            var collider = colliders[i];
+            if (collider == null || !collider.enabled)
+            {
+                continue;
+            }
+
+            if (TryResolveHingeRingAttachmentPointForCollider(
+                    collider,
+                    positions,
+                    out var candidatePoint,
+                    out var candidateDistance)
+                && candidateDistance < distance)
+            {
+                hasCandidate = true;
+                bodyPoint = candidatePoint;
+                distance = candidateDistance;
+            }
+        }
+
+        if (hasCandidate)
+        {
+            return true;
+        }
+
+        if (!TryGetPlaceableWorldBounds(placeable, out var bounds))
+        {
+            bodyPoint = ResolvePlaceableCenter(placeable);
+            distance = GetDistanceFromPointToHingeRing(positions, bodyPoint);
+            return true;
+        }
+
+        var boundsPoint = bounds.ClosestPoint(ResolveHingeAttachmentCenter());
+        bodyPoint = boundsPoint;
+        distance = GetDistanceFromPointToHingeRing(positions, boundsPoint);
+        return true;
+    }
+
+    private bool TryResolveHingeRingAttachmentPointForCollider(
+        Collider collider,
+        IReadOnlyList<Vector3> ringPositions,
+        out Vector3 bodyPoint,
+        out float distance)
+    {
+        bodyPoint = default;
+        distance = float.MaxValue;
+        if (collider == null || ringPositions == null || ringPositions.Count < 2)
+        {
+            return false;
+        }
+
+        var hasCandidate = false;
+        var segmentCount = GetHingeRingSegmentCount(ringPositions);
+        for (var i = 0; i < segmentCount; i++)
+        {
+            var start = ringPositions[i];
+            var end = ringPositions[(i + 1) % ringPositions.Count];
+            if ((end - start).sqrMagnitude <= 0.00000001f)
+            {
+                continue;
+            }
+
+            var ringPoint = ClosestPointOnSegment(start, end, collider.bounds.center);
+            var colliderPoint = collider.ClosestPoint(ringPoint);
+            for (var iteration = 0; iteration < 2; iteration++)
+            {
+                ringPoint = ClosestPointOnSegment(start, end, colliderPoint);
+                colliderPoint = collider.ClosestPoint(ringPoint);
+            }
+
+            var candidateDistance = Vector3.Distance(ringPoint, colliderPoint);
+            if (candidateDistance >= distance)
+            {
+                continue;
+            }
+
+            hasCandidate = true;
+            bodyPoint = colliderPoint;
+            distance = candidateDistance;
+        }
+
+        return hasCandidate;
+    }
+
+    private float GetDistanceFromPointToHingeRing(IReadOnlyList<Vector3> ringPositions, Vector3 point)
+    {
+        if (ringPositions == null || ringPositions.Count < 2)
+        {
+            return float.MaxValue;
+        }
+
+        var best = float.MaxValue;
+        var segmentCount = GetHingeRingSegmentCount(ringPositions);
+        for (var i = 0; i < segmentCount; i++)
+        {
+            var start = ringPositions[i];
+            var end = ringPositions[(i + 1) % ringPositions.Count];
+            var closest = ClosestPointOnSegment(start, end, point);
+            best = Mathf.Min(best, Vector3.Distance(point, closest));
+        }
+
+        return best;
+    }
+
+    private int GetHingeRingSegmentCount(IReadOnlyList<Vector3> ringPositions)
+    {
+        if (ringPositions == null)
+        {
+            return 0;
+        }
+
+        if (ringPositions.Count < 3)
+        {
+            return Mathf.Max(0, ringPositions.Count - 1);
+        }
+
+        return physicsIntent == PhysicsIntentType.Hinge
+            ? ringPositions.Count
+            : ringPositions.Count - 1;
+    }
+
+    private static Vector3 ClosestPointOnSegment(Vector3 start, Vector3 end, Vector3 point)
+    {
+        var segment = end - start;
+        var lengthSq = segment.sqrMagnitude;
+        if (lengthSq <= 0.00000001f)
+        {
+            return start;
+        }
+
+        var t = Vector3.Dot(point - start, segment) / lengthSq;
+        return start + segment * Mathf.Clamp01(t);
+    }
+
     private bool HasSpringEndpointAttachment()
     {
         return _attachedStartPlaceable != null || _attachedEndPlaceable != null;
@@ -1718,6 +1982,11 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
     private void FollowAttachedPlaceable()
     {
+        if (physicsIntent == PhysicsIntentType.Hinge && IsSandboxSimulationActive())
+        {
+            return;
+        }
+
         if (physicsIntent == PhysicsIntentType.Spring && HasSpringEndpointAttachment())
         {
             FollowSpringEndpointAttachments();
@@ -1804,6 +2073,12 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         }
 
         CacheAttachedPlaceableTransform();
+    }
+
+    private static bool IsSandboxSimulationActive()
+    {
+        var sim = SandboxSimulationController.Instance;
+        return sim != null && sim.IsSimulating;
     }
 
     private void CaptureSpringEndpointAttachmentGeometry()
@@ -1944,10 +2219,13 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
         if (_attachmentLineRenderer != null)
         {
+            var lineTarget = isHinge
+                ? ResolveHingeAttachmentBodyPoint(placeable)
+                : ResolvePlaceableCenter(placeable);
             _attachmentLineRenderer.gameObject.layer = gameObject.layer;
             _attachmentLineRenderer.widthMultiplier = hingeAttachmentLineWidth;
             _attachmentLineRenderer.SetPosition(0, junction);
-            _attachmentLineRenderer.SetPosition(1, ResolvePlaceableCenter(placeable));
+            _attachmentLineRenderer.SetPosition(1, lineTarget);
         }
 
         SetAttachmentVisualsVisible(true, isHinge);
@@ -2212,6 +2490,8 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
             color = attachmentIndicatorColor,
             enableInstancing = true
         };
+        ConfigureTransparentMaterial(_attachmentMaterial);
+        _attachmentMaterial.renderQueue = (int)RenderQueue.Transparent + 15;
         ApplyAttachmentMaterialColor();
         return _attachmentMaterial;
     }
@@ -2238,6 +2518,8 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
             color = attachmentIndicatorOutlineColor,
             enableInstancing = true
         };
+        ConfigureTransparentMaterial(_attachmentOutlineMaterial);
+        _attachmentOutlineMaterial.renderQueue = (int)RenderQueue.Transparent + 14;
         ApplyAttachmentOutlineMaterialColor();
         return _attachmentOutlineMaterial;
     }
@@ -2540,15 +2822,65 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     {
         ResolveReferences();
 
+        var color = _baseColor;
+        if (ShouldRenderAttachedHingeTranslucent())
+        {
+            color.a = Mathf.Min(color.a, attachedHingeAlpha);
+        }
+
         if (_lineRenderer != null && _lineRenderer.material != null)
         {
-            _lineRenderer.material.color = _baseColor;
+            if (color.a < 0.999f)
+            {
+                ConfigureTransparentMaterial(_lineRenderer.material);
+            }
+
+            _lineRenderer.material.color = color;
+            _lineRenderer.startColor = color;
+            _lineRenderer.endColor = color;
         }
 
         if (_arrowTip != null)
         {
-            _arrowTip.SetColor(_baseColor);
+            _arrowTip.SetColor(color);
         }
+    }
+
+    private bool ShouldRenderAttachedHingeTranslucent()
+    {
+        return physicsIntent == PhysicsIntentType.Hinge && _attachedPlaceable != null;
+    }
+
+    private static void ConfigureTransparentMaterial(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+        }
+
+        if (material.HasProperty("_Blend"))
+        {
+            material.SetFloat("_Blend", 0f);
+        }
+
+        if (material.HasProperty("_Cull"))
+        {
+            material.SetFloat("_Cull", (float)CullMode.Off);
+        }
+
+        material.SetOverrideTag("RenderType", "Transparent");
+        material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+        material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+        material.SetInt("_ZWrite", 0);
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.EnableKeyword("_ALPHABLEND_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.renderQueue = (int)RenderQueue.Transparent;
     }
 
     private void RefreshSpringColor()
@@ -2668,7 +3000,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         _selectionAuraMaterial = new Material(shader);
         _selectionAuraMaterial.name = "PhysicsDrawingSelectionAura";
         SetAuraMaterialColor(_selectionAuraMaterial, selectionAuraColor);
-        _selectionAuraMaterial.renderQueue = 1990;
+        _selectionAuraMaterial.renderQueue = (int)RenderQueue.Transparent + 20;
         return _selectionAuraMaterial;
     }
 

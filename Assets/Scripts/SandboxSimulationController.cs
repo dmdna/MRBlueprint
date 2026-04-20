@@ -54,6 +54,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
 
         Instance = null;
         SetPhysicsAutoSimulation(true);
+        SandboxStrokePlaceablePhysicsApplier.DeactivateAllDrawingPhysics();
 
         if (IsSimulating)
         {
@@ -94,6 +95,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
         ApplyPhysicsSimulationState();
 
         RefreshAllPlaceablesGravity();
+        SandboxStrokePlaceablePhysicsApplier.ActivateAllDrawingPhysics();
         Notify();
     }
 
@@ -103,6 +105,7 @@ public sealed class SandboxSimulationController : MonoBehaviour
         if (!IsSimulating)
             return;
 
+        SandboxStrokePlaceablePhysicsApplier.DeactivateAllDrawingPhysics();
         RestoreSnapshot();
 
         IsSimulating = false;
@@ -139,9 +142,12 @@ public sealed class SandboxSimulationController : MonoBehaviour
         if (!IsSimulating)
             return;
 
+        SandboxStrokePlaceablePhysicsApplier.DeactivateAllDrawingPhysics();
         RestoreSnapshot();
         IsPaused = false;
         ApplyPhysicsSimulationState();
+        RefreshAllPlaceablesGravity();
+        SandboxStrokePlaceablePhysicsApplier.ActivateAllDrawingPhysics();
         Notify();
     }
 

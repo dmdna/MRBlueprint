@@ -664,7 +664,30 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     public void ToggleToolbarVisible()
     {
+        if (IsToolbarVisible && drawerController != null && drawerController.IsOpen)
+            drawerController.CloseDrawer();
+
         SetToolbarVisible(!IsToolbarVisible);
+    }
+
+    public void ToggleSimulationShortcut()
+    {
+        if (_simulation == null)
+        {
+            _simulation = GetComponent<SandboxSimulationController>();
+            if (_simulation == null)
+                _simulation = gameObject.AddComponent<SandboxSimulationController>();
+            _simulation.Configure(drawerController, transformGizmo);
+        }
+
+        if (_simulation.IsSimulating)
+            _simulation.ExitSimulation();
+        else
+            _simulation.EnterSimulation();
+
+        SetToolbarVisible(true);
+        RefreshShellBarsVisibility();
+        UpdatePauseButtonIcon();
     }
 
     public void ToggleOptionsVisible()
