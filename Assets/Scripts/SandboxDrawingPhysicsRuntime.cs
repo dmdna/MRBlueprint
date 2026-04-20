@@ -29,6 +29,68 @@ public sealed class SandboxDrawingPhysicsRuntime : MonoBehaviour
     private bool _instantApplied;
     private bool _directionFollowsBody;
 
+    public bool TryGetPhysicsLensSpringTelemetry(
+        Rigidbody target,
+        out Rigidbody bodyA,
+        out Rigidbody bodyB,
+        out Vector3 pointA,
+        out Vector3 pointB,
+        out float restLength,
+        out float strength,
+        out float damper,
+        out string displayName)
+    {
+        bodyA = _bodyA;
+        bodyB = _bodyB;
+        pointA = default;
+        pointB = default;
+        restLength = _restLength;
+        strength = _strength;
+        damper = _damper;
+        displayName = _drawing != null ? _drawing.DisplayName : name;
+
+        if (_mode != RuntimeMode.Spring
+            || target == null
+            || _bodyA == null
+            || _bodyB == null
+            || (target != _bodyA && target != _bodyB))
+        {
+            return false;
+        }
+
+        pointA = _bodyA.transform.TransformPoint(_localPointA);
+        pointB = _bodyB.transform.TransformPoint(_localPointB);
+        return true;
+    }
+
+    public bool TryGetPhysicsLensHingeTelemetry(
+        Rigidbody target,
+        out Vector3 fixedPivot,
+        out Vector3 bodyPoint,
+        out float restLength,
+        out float stiffness,
+        out float damper,
+        out string displayName)
+    {
+        fixedPivot = _fixedPivot;
+        bodyPoint = default;
+        restLength = _restLength;
+        stiffness = _strength;
+        damper = _damper;
+        displayName = _drawing != null ? _drawing.DisplayName : name;
+
+        if (_mode != RuntimeMode.Hinge
+            || target == null
+            || _bodyA == null
+            || target != _bodyA)
+        {
+            return false;
+        }
+
+        bodyPoint = _bodyA.transform.TransformPoint(_localPointA);
+        return true;
+    }
+
     public void ConfigureSpring(
         PhysicsDrawingSelectable drawing,
         Rigidbody bodyA,
@@ -46,6 +108,11 @@ public sealed class SandboxDrawingPhysicsRuntime : MonoBehaviour
         _localPointB = localPointB;
         _strength = Mathf.Max(0f, strength);
         _damper = Mathf.Max(0f, damper);
+        _restLength = bodyA != null && bodyB != null
+            ? Vector3.Distance(
+                bodyA.transform.TransformPoint(localPointA),
+                bodyB.transform.TransformPoint(localPointB))
+            : MinDistance;
         _instantImpulse = false;
         _instantApplied = false;
         _directionFollowsBody = false;
@@ -163,10 +230,12 @@ public sealed class SandboxDrawingPhysicsRuntime : MonoBehaviour
         var direction = _directionFollowsBody
             ? _bodyA.transform.TransformDirection(_localDirection).normalized
             : _direction;
+        var applied = direction * _strength;
         _bodyA.AddForceAtPosition(
-            direction * _strength,
+            applied,
             worldPoint,
             _instantImpulse ? ForceMode.Impulse : ForceMode.Force);
+        PhysicsLensForceEventCache.ReportUserForce(_bodyA, applied, _instantImpulse);
         _instantApplied = true;
     }
 
