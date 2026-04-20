@@ -36,6 +36,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     private const int MXInkPointerId = -12003;
     private const int EndMarkerSegments = 32;
+    private const int RayOverlaySortingOrder = 620;
 
     private XRRayInteractor _rayInteractor;
     private LineRenderer _lineRenderer;
@@ -194,6 +195,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         _lineRenderer.alignment = LineAlignment.View;
         _lineRenderer.shadowCastingMode = ShadowCastingMode.Off;
         _lineRenderer.receiveShadows = false;
+        _lineRenderer.sortingOrder = RayOverlaySortingOrder;
 
         if (_runtimeMaterial == null)
         {
@@ -289,13 +291,13 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                                           || _stylusGizmoDragging
                                           || selectionExists
                                           || _rearButtonSelectionLatch;
-        FrontButtonShapeGrabTargetActive = pointerState.HoveredDrawingEndpoint != null
-                                           || PhysicsDrawingEndpointHandle.IsSourceRayDragging(
-                                               PlaceableMultiGrabCoordinator.MXInkSourceId)
-                                           || ResolvePlaceableGrabTarget(pointerState) != null
-                                           || ResolvePhysicsDrawingGrabTarget(pointerState) != null
-                                           || PlaceableMultiGrabCoordinator.IsSourceGrabbing(
-                                               PlaceableMultiGrabCoordinator.MXInkSourceId);
+        var frontGrabActive = PhysicsDrawingEndpointHandle.IsSourceRayDragging(PlaceableMultiGrabCoordinator.MXInkSourceId)
+                              || PlaceableMultiGrabCoordinator.IsSourceGrabbing(PlaceableMultiGrabCoordinator.MXInkSourceId);
+        FrontButtonShapeGrabTargetActive = frontGrabActive
+                                           || (!pointerState.HasUiHit
+                                               && (pointerState.HoveredDrawingEndpoint != null
+                                                   || ResolvePlaceableGrabTarget(pointerState) != null
+                                                   || ResolvePhysicsDrawingGrabTarget(pointerState) != null));
         return pointerState;
     }
 
@@ -455,6 +457,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         _endMarkerRenderer.sharedMaterial = _runtimeMaterial;
         _endMarkerRenderer.shadowCastingMode = ShadowCastingMode.Off;
         _endMarkerRenderer.receiveShadows = false;
+        _endMarkerRenderer.sortingOrder = RayOverlaySortingOrder;
         _endMarker = markerObject.transform;
         markerObject.SetActive(false);
     }
@@ -661,6 +664,12 @@ public class MXInkRayInteractorBinder : MonoBehaviour
                 PlaceableMultiGrabCoordinator.EndGrab(sourceId);
             }
 
+            _clusterFrontWasPressed = clusterFrontPressed;
+            return;
+        }
+
+        if (pointerState.HasUiHit)
+        {
             _clusterFrontWasPressed = clusterFrontPressed;
             return;
         }
@@ -1103,6 +1112,17 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         }
 
         ConfigureTransparentMaterial(material);
+        if (material.HasProperty("_ZWrite"))
+        {
+            material.SetInt("_ZWrite", 1);
+        }
+
+        if (material.HasProperty("_ZTest"))
+        {
+            material.SetInt("_ZTest", (int)CompareFunction.LessEqual);
+        }
+
+        material.renderQueue = (int)RenderQueue.Overlay - 4;
         return material;
     }
 

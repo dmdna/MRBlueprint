@@ -3,6 +3,8 @@ Shader "MRBlueprint/RayNoStackTransparent"
     Properties
     {
         _Color ("Color", Color) = (1, 1, 1, 0.45)
+        _ZWrite ("Z Write", Float) = 0
+        _ZTest ("Z Test", Float) = 4
     }
 
     SubShader
@@ -19,8 +21,8 @@ Shader "MRBlueprint/RayNoStackTransparent"
             Name "ForwardUnlit"
             Tags { "LightMode" = "UniversalForward" }
 
-            ZWrite Off
-            ZTest LEqual
+            ZWrite [_ZWrite]
+            ZTest [_ZTest]
             Cull Off
             Blend SrcAlpha OneMinusSrcAlpha
 
@@ -84,8 +86,8 @@ Shader "MRBlueprint/RayNoStackTransparent"
 
         Pass
         {
-            ZWrite Off
-            ZTest LEqual
+            ZWrite [_ZWrite]
+            ZTest [_ZTest]
             Cull Off
             Blend SrcAlpha OneMinusSrcAlpha
 

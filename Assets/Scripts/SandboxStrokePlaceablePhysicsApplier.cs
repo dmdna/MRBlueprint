@@ -21,6 +21,8 @@ public static class SandboxStrokePlaceablePhysicsApplier
     private const float HingeStiffnessMax = 680f;
     private const float HingeDamperMin = 8f;
     private const float HingeDamperMax = 42f;
+    private const float HingeTorqueEstimateMin = 0.15f;
+    private const float HingeTorqueEstimateMax = 4.5f;
 
     private static readonly List<SandboxDrawingPhysicsRuntime> ActiveRuntimes = new();
 
@@ -53,6 +55,38 @@ public static class SandboxStrokePlaceablePhysicsApplier
         {
             DestroyRuntime(orphaned[i]);
         }
+    }
+
+    public static float ResolveImpulseStrength(float normalized, bool instant)
+    {
+        return instant
+            ? Mathf.Lerp(ImpulseInstantMin, ImpulseInstantMax, Mathf.Clamp01(normalized))
+            : Mathf.Lerp(ImpulseContinuousMin, ImpulseContinuousMax, Mathf.Clamp01(normalized));
+    }
+
+    public static float ResolveSpringStrength(float normalized)
+    {
+        return Mathf.Lerp(SpringForceMin, SpringForceMax, Mathf.Clamp01(normalized));
+    }
+
+    public static float ResolveSpringDamper(float normalized)
+    {
+        return Mathf.Lerp(SpringDamperMin, SpringDamperMax, Mathf.Clamp01(normalized));
+    }
+
+    public static float ResolveHingeTetherStiffness(float normalized)
+    {
+        return Mathf.Lerp(HingeStiffnessMin, HingeStiffnessMax, Mathf.Clamp01(normalized));
+    }
+
+    public static float ResolveHingeDamper(float normalized)
+    {
+        return Mathf.Lerp(HingeDamperMin, HingeDamperMax, Mathf.Clamp01(normalized));
+    }
+
+    public static float ResolveHingeTorqueEstimate(float normalized)
+    {
+        return Mathf.Lerp(HingeTorqueEstimateMin, HingeTorqueEstimateMax, Mathf.Clamp01(normalized));
     }
 
     private static void TryActivateDrawing(PhysicsDrawingSelectable drawing)
@@ -102,8 +136,8 @@ public static class SandboxStrokePlaceablePhysicsApplier
             start.LocalPoint,
             end.Body,
             end.LocalPoint,
-            Mathf.Lerp(SpringForceMin, SpringForceMax, drawing.SpringStiffness),
-            Mathf.Lerp(SpringDamperMin, SpringDamperMax, drawing.SpringStiffness));
+            ResolveSpringStrength(drawing.SpringStiffness),
+            ResolveSpringDamper(drawing.SpringStiffness));
         ActiveRuntimes.Add(runtime);
     }
 
@@ -119,9 +153,7 @@ public static class SandboxStrokePlaceablePhysicsApplier
             return;
         }
 
-        var strength = drawing.ImpulseInstant
-            ? Mathf.Lerp(ImpulseInstantMin, ImpulseInstantMax, drawing.ImpulseForce)
-            : Mathf.Lerp(ImpulseContinuousMin, ImpulseContinuousMax, drawing.ImpulseForce);
+        var strength = ResolveImpulseStrength(drawing.ImpulseForce, drawing.ImpulseInstant);
         var runtime = drawing.gameObject.AddComponent<SandboxDrawingPhysicsRuntime>();
         runtime.ConfigureImpulse(
             drawing,
@@ -153,8 +185,8 @@ public static class SandboxStrokePlaceablePhysicsApplier
             body.transform.InverseTransformPoint(bodyPoint),
             pivot,
             stringLength,
-            Mathf.Lerp(HingeStiffnessMin, HingeStiffnessMax, drawing.HingeTorque),
-            Mathf.Lerp(HingeDamperMin, HingeDamperMax, drawing.HingeTorque));
+            ResolveHingeTetherStiffness(drawing.HingeTorque),
+            ResolveHingeDamper(drawing.HingeTorque));
         ActiveRuntimes.Add(runtime);
     }
 

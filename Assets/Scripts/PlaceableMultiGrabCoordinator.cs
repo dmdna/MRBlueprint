@@ -251,7 +251,9 @@ public static class PlaceableMultiGrabCoordinator
         CaptureMultiGrabIfNeeded(target);
         HandleAttachmentGrabStarted(sourceId, target);
 
-        if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.HasSelection)
+        if (target.IsDrawing
+            && AssetSelectionManager.Instance != null
+            && AssetSelectionManager.Instance.HasSelection)
         {
             AssetSelectionManager.Instance.ClearSelection();
         }
@@ -310,7 +312,9 @@ public static class PlaceableMultiGrabCoordinator
         CaptureMultiGrabIfNeeded(target);
         HandleAttachmentGrabStarted(sourceId, target);
 
-        if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.HasSelection)
+        if (target.IsDrawing
+            && AssetSelectionManager.Instance != null
+            && AssetSelectionManager.Instance.HasSelection)
         {
             AssetSelectionManager.Instance.ClearSelection();
         }

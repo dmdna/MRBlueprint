@@ -33,6 +33,7 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
     [SerializeField] private float joystickDeadzone = 0.18f;
 
     private readonly List<XRInputDevice> _xrDevices = new();
+    private readonly Dictionary<Renderer, Material[]> _effectMeshRuntimeMaterials = new();
     private GameObject _fallbackFloor;
     private Transform _fallbackFloorTransform;
     private Renderer _fallbackFloorRenderer;
@@ -75,6 +76,25 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
         {
             Destroy(_fallbackFloorMaterial);
         }
+
+        foreach (var pair in _effectMeshRuntimeMaterials)
+        {
+            var materials = pair.Value;
+            if (materials == null)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < materials.Length; i++)
+            {
+                if (materials[i] != null)
+                {
+                    Destroy(materials[i]);
+                }
+            }
+        }
+
+        _effectMeshRuntimeMaterials.Clear();
     }
 
     private void ResolveEffectMeshes()
@@ -133,9 +153,106 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
                 if (generated?.effectMeshGO != null)
                 {
                     generated.effectMeshGO.layer = _physicsSurfaceLayer;
+                    ConfigureEffectMeshRenderer(generated.effectMeshGO.GetComponent<Renderer>());
                 }
             }
         }
+    }
+
+    private void ConfigureEffectMeshRenderer(Renderer renderer)
+    {
+        if (renderer == null || _effectMeshRuntimeMaterials.ContainsKey(renderer))
+        {
+            return;
+        }
+
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+
+        var sharedMaterials = renderer.sharedMaterials;
+        if (sharedMaterials == null || sharedMaterials.Length == 0)
+        {
+            return;
+        }
+
+        var runtimeMaterials = new Material[sharedMaterials.Length];
+        for (var i = 0; i < sharedMaterials.Length; i++)
+        {
+            var source = sharedMaterials[i];
+            if (source == null)
+            {
+                runtimeMaterials[i] = null;
+                continue;
+            }
+
+            var runtime = new Material(source)
+            {
+                name = source.name + "_RuntimeNoDepth",
+                renderQueue = (int)RenderQueue.Transparent - 20
+            };
+            ConfigureSurfaceVisualMaterial(runtime);
+            runtimeMaterials[i] = runtime;
+        }
+
+        renderer.sharedMaterials = runtimeMaterials;
+        _effectMeshRuntimeMaterials[renderer] = runtimeMaterials;
+    }
+
+    private static void ConfigureSurfaceVisualMaterial(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        var color = new Color(0.25f, 0.75f, 1f, 0.22f);
+        if (material.HasProperty("_BaseColor"))
+        {
+            color = material.GetColor("_BaseColor");
+        }
+        else if (material.HasProperty("_Color"))
+        {
+            color = material.GetColor("_Color");
+        }
+
+        color.a = Mathf.Min(color.a, 0.35f);
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
+
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+        }
+
+        if (material.HasProperty("_Blend"))
+        {
+            material.SetFloat("_Blend", 0f);
+        }
+
+        if (material.HasProperty("_SrcBlend"))
+        {
+            material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+        }
+
+        if (material.HasProperty("_DstBlend"))
+        {
+            material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+        }
+
+        if (material.HasProperty("_ZWrite"))
+        {
+            material.SetFloat("_ZWrite", 0f);
+        }
+
+        material.SetOverrideTag("RenderType", "Transparent");
+        material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        material.EnableKeyword("_ALPHABLEND_ON");
     }
 
     private void RefreshFallbackFloorVisibility()

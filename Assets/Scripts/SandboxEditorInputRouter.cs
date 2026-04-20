@@ -159,12 +159,6 @@ public class SandboxEditorInputRouter : MonoBehaviour
 
                 if (_placeableDragging)
                 {
-                    if (AssetSelectionManager.Instance != null
-                        && AssetSelectionManager.Instance.SelectedAsset == _placeablePressCandidate)
-                    {
-                        AssetSelectionManager.Instance.ClearSelection();
-                    }
-
                     TryMovePlaceableInViewPlane(screenPos);
                 }
             }

@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public sealed class ForceLedger
+public sealed class VisualizationForceLedger
 {
     public float Gravity { get; private set; }
     public float UserForce { get; private set; }
@@ -26,11 +26,11 @@ public sealed class ForceLedger
     public void Update(
         Rigidbody rb,
         PlaceableAsset asset,
-        float approxNetForce,
+        Vector3 approxNetForce,
         PhysicsLensConstraintSummary constraint,
         PhysicsLensCollisionEvent latestImpact,
         PhysicsLensForceEvent latestUserForce,
-        PhysicsLensConfig config,
+        VisualizationConfig config,
         float fixedDeltaTime)
     {
         Clear();
@@ -41,11 +41,13 @@ public sealed class ForceLedger
         if (rb.useGravity && !rb.isKinematic)
             Gravity = rb.mass * Physics.gravity.magnitude;
 
-        var recentWindow = config != null ? config.RecentImpactSeconds : 2f;
+        var recentWindow = config.RecentImpactSeconds;
         if (latestUserForce.IsValid && Time.time - latestUserForce.Time <= recentWindow)
+        {
             UserForce = latestUserForce.IsImpulse
                 ? latestUserForce.Magnitude / Mathf.Max(0.001f, fixedDeltaTime)
                 : latestUserForce.Magnitude;
+        }
 
         if (constraint.IsValid)
         {
@@ -55,10 +57,8 @@ public sealed class ForceLedger
                 Hinge = Mathf.Max(constraint.TorqueMagnitude, constraint.NormalizedLimitProximity);
         }
 
-        if (latestImpact.IsValid && Time.time - latestImpact.Time <= config.RecentImpactSeconds)
-        {
+        if (latestImpact.IsValid && Time.time - latestImpact.Time <= recentWindow)
             Impact = latestImpact.ImpulseMagnitude / Mathf.Max(0.001f, fixedDeltaTime);
-        }
 
         if (asset != null && !rb.isKinematic && rb.linearVelocity.sqrMagnitude > 0.0001f)
         {
@@ -67,8 +67,7 @@ public sealed class ForceLedger
         }
 
         var known = Gravity + UserForce + Spring + Hinge + Impact + Friction;
-        Other = Mathf.Max(0f, approxNetForce - known);
-
+        Other = Mathf.Max(0f, approxNetForce.magnitude - known);
         DominantDriver = ResolveDominant(config);
     }
 
@@ -95,28 +94,9 @@ public sealed class ForceLedger
         }
     }
 
-    public float MaxValue()
+    private PhysicsLensDriver ResolveDominant(VisualizationConfig config)
     {
-        var max = Gravity;
-        if (UserForce > max)
-            max = UserForce;
-        if (Spring > max)
-            max = Spring;
-        if (Hinge > max)
-            max = Hinge;
-        if (Impact > max)
-            max = Impact;
-        if (Friction > max)
-            max = Friction;
-        if (Other > max)
-            max = Other;
-        return max;
-    }
-
-    private PhysicsLensDriver ResolveDominant(PhysicsLensConfig config)
-    {
-        var threshold = config != null ? config.LowForceThreshold : 0.1f;
-        var best = threshold;
+        var best = config != null ? config.LowForceThreshold : 0.1f;
         var driver = PhysicsLensDriver.None;
 
         Consider(Gravity, PhysicsLensDriver.Gravity, ref best, ref driver);

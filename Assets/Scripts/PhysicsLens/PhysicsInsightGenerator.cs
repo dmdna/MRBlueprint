@@ -51,6 +51,9 @@ public static class PhysicsInsightGenerator
         if (ledger != null && ledger.DominantDriver == PhysicsLensDriver.Gravity)
             return "Gravity is the dominant driver.";
 
+        if (ledger != null && ledger.DominantDriver == PhysicsLensDriver.Friction)
+            return "Friction is slowing the object down.";
+
         if (config != null
             && sample.Speed > config.RestSpeedThreshold * 3f
             && sample.ApproxNetForce <= config.LowForceThreshold * 2f)
@@ -74,11 +77,14 @@ public static class PhysicsInsightGenerator
         {
             var age = Time.time - latestImpact.Time;
             if (age <= config.RecentImpactSeconds)
-                return "Impact: " + latestImpact.ImpulseMagnitude.ToString("0.0") + " N*s, " + age.ToString("0.0") + "s ago";
+                return "Impact: " + latestImpact.ImpulseMagnitude.ToString("0.0") + " N·s, " + age.ToString("0.0") + "s ago";
         }
 
         if (ledger != null && ledger.UserForce > 0.01f)
             return "User force applied";
+
+        if (ledger != null && ledger.Friction > 0.01f && ledger.DominantDriver == PhysicsLensDriver.Friction)
+            return "Friction load is high";
 
         if (constraint.IsValid && constraint.Kind == PhysicsLensConstraintKind.Spring)
         {

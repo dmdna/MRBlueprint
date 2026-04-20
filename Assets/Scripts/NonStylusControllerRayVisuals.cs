@@ -45,6 +45,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private const int LeftPointerId = -12001;
     private const int RightPointerId = -12002;
     private const int EndMarkerSegments = 32;
+    private const int RayOverlaySortingOrder = 620;
     private static readonly Color ControllerRayColor = new(0.78f, 0.78f, 0.78f, 0.38f);
 
     private ControllerRayState _leftRay;
@@ -1199,6 +1200,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         line.enabled = false;
         line.shadowCastingMode = ShadowCastingMode.Off;
         line.receiveShadows = false;
+        line.sortingOrder = RayOverlaySortingOrder;
 
         line.sharedMaterial = GetOrCreateRuntimeMaterial();
         line.widthMultiplier = lineTemplate != null ? lineTemplate.widthMultiplier : fallbackLineWidth;
@@ -1227,6 +1229,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         rayState.EndMarkerRenderer.sharedMaterial = GetOrCreateRuntimeMaterial();
         rayState.EndMarkerRenderer.shadowCastingMode = ShadowCastingMode.Off;
         rayState.EndMarkerRenderer.receiveShadows = false;
+        rayState.EndMarkerRenderer.sortingOrder = RayOverlaySortingOrder;
         rayState.EndMarker = markerObject.transform;
         markerObject.SetActive(false);
     }
@@ -1297,6 +1300,17 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         ConfigureTransparentMaterial(_runtimeMaterial);
+        if (_runtimeMaterial.HasProperty("_ZWrite"))
+        {
+            _runtimeMaterial.SetInt("_ZWrite", 1);
+        }
+
+        if (_runtimeMaterial.HasProperty("_ZTest"))
+        {
+            _runtimeMaterial.SetInt("_ZTest", (int)CompareFunction.LessEqual);
+        }
+
+        _runtimeMaterial.renderQueue = (int)RenderQueue.Overlay - 4;
         return _runtimeMaterial;
     }
 

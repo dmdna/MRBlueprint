@@ -11,6 +11,8 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public class SandboxEditorToolbarFrame : MonoBehaviour
 {
+    private const int MinimumOverlaySortingOrder = 500;
+
     [SerializeField] private XRContentDrawerController drawerController;
     [SerializeField] private PlaceableTransformGizmo transformGizmo;
     [SerializeField] private SandboxDrawerHints drawerHints;
@@ -64,6 +66,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
         BuildUi();
         BuildOptionsOverlay();
+        ApplyToolbarVisualPriority();
         _simulation.RefreshAllPlaceablesGravity();
 
         SandboxEditorModeState.ModeChanged += OnSandboxSessionModeChanged;
@@ -115,7 +118,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var canvasGo = new GameObject("SandboxEditorToolbarCanvas");
         var canvas = canvasGo.AddComponent<Canvas>();
         canvas.overrideSorting = true;
-        canvas.sortingOrder = canvasSortOrder;
+        canvas.sortingOrder = Mathf.Max(canvasSortOrder, MinimumOverlaySortingOrder);
         canvasGo.AddComponent<GraphicRaycaster>();
 
         var scaler = canvasGo.AddComponent<CanvasScaler>();
@@ -518,6 +521,27 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         closeTxRt.offsetMax = Vector2.zero;
 
         _optionsOverlayRoot.SetActive(false);
+    }
+
+    private void ApplyToolbarVisualPriority()
+    {
+        if (_canvasRoot == null)
+        {
+            return;
+        }
+
+        var canvas = _canvasRoot.GetComponent<Canvas>();
+        if (canvas != null)
+        {
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = Mathf.Max(canvas.sortingOrder, MinimumOverlaySortingOrder);
+        }
+
+        var graphics = _canvasRoot.GetComponentsInChildren<Graphic>(true);
+        for (var i = 0; i < graphics.Length; i++)
+        {
+            PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(graphics[i]);
+        }
     }
 
     private void OnSimulationStateChanged()

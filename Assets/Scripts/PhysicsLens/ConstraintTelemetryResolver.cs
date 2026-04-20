@@ -367,7 +367,7 @@ public sealed class ConstraintTelemetryResolver
 
         var angle = Vector3.SignedAngle(_drawingReferenceVector, currentReference, axis);
         var angularVelocity = Vector3.Dot(_target.angularVelocity, axis) * Mathf.Rad2Deg;
-        var authoredTorque = Mathf.Lerp(0.15f, 4.5f, _hingeDrawing.HingeTorque);
+        var authoredTorque = SandboxStrokePlaceablePhysicsApplier.ResolveHingeTorqueEstimate(_hingeDrawing.HingeTorque);
         var torque = authoredTorque * (0.25f + Mathf.Abs(angularVelocity) * 0.02f);
 
         summary = new PhysicsLensConstraintSummary

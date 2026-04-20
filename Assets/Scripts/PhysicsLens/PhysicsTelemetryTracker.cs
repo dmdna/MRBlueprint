@@ -95,7 +95,7 @@ public sealed class PhysicsTelemetryTracker
         if (_forceEventCache == null)
             _forceEventCache = _rb.GetComponent<PhysicsLensForceEventCache>();
         var latestUserForce = _forceEventCache != null ? _forceEventCache.LatestUserForce : default;
-        _forceLedger.Update(_rb, approxNetForce, Constraint, latestImpact, latestUserForce, _config, fixedDeltaTime);
+        _forceLedger.Update(_rb, _asset, approxNetForce, Constraint, latestImpact, latestUserForce, _config, fixedDeltaTime);
 
         var hasNewImpact = latestImpact.IsValid && latestImpact.Time > _lastRecordedImpactTime;
         if (hasNewImpact)

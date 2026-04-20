@@ -12,7 +12,7 @@ public sealed class PhysicsLensForceEventCache : MonoBehaviour
 
     public static void ReportUserForce(Rigidbody rb, Vector3 forceOrImpulse, bool isImpulse)
     {
-        if (!PhysicsLensManager.RuntimeAvailable || rb == null)
+        if ((!PhysicsLensManager.RuntimeAvailable && !SimulationVisualizationManager.RuntimeAvailable) || rb == null)
             return;
 
         var magnitude = forceOrImpulse.magnitude;

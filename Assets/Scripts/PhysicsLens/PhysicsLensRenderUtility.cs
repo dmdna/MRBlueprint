@@ -1,8 +1,12 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 public static class PhysicsLensRenderUtility
 {
+    private static Material _uiOverlayMaterial;
+    private static Material _uiPerspectiveOverlayMaterial;
+
     public static Material CreateVertexColorMaterial(string name)
     {
         var shader = Shader.Find("Sprites/Default");
@@ -17,6 +21,7 @@ public static class PhysicsLensRenderUtility
             color = Color.white
         };
 
+        ConfigureOverlayDepth(material);
         return material;
     }
 
@@ -54,6 +59,7 @@ public static class PhysicsLensRenderUtility
         text.raycastTarget = false;
         text.horizontalOverflow = HorizontalWrapMode.Wrap;
         text.verticalOverflow = VerticalWrapMode.Truncate;
+        ApplyUiOverlayMaterial(text);
         return text;
     }
 
@@ -71,6 +77,147 @@ public static class PhysicsLensRenderUtility
         var image = go.AddComponent<Image>();
         image.color = color;
         image.raycastTarget = false;
+        ApplyUiOverlayMaterial(image);
         return image;
+    }
+
+    public static void ApplyUiOverlayMaterial(Graphic graphic)
+    {
+        if (graphic == null)
+        {
+            return;
+        }
+
+        var material = GetUiOverlayMaterial();
+        if (material != null)
+        {
+            graphic.material = material;
+        }
+    }
+
+    public static void ApplyUiPerspectiveOverlayMaterial(Graphic graphic)
+    {
+        if (graphic == null)
+        {
+            return;
+        }
+
+        var material = GetUiPerspectiveOverlayMaterial();
+        if (material != null)
+        {
+            graphic.material = material;
+        }
+    }
+
+    private static Material GetUiOverlayMaterial()
+    {
+        if (_uiOverlayMaterial != null)
+        {
+            return _uiOverlayMaterial;
+        }
+
+        var shader = FindUiOverlayShader();
+        if (shader == null)
+        {
+            return null;
+        }
+
+        _uiOverlayMaterial = new Material(shader)
+        {
+            name = "MRBlueprintUiOverlayNoDepth",
+            hideFlags = HideFlags.HideAndDontSave,
+            renderQueue = (int)RenderQueue.Overlay - 10
+        };
+        ConfigureOverlayDepth(_uiOverlayMaterial);
+        return _uiOverlayMaterial;
+    }
+
+    private static Material GetUiPerspectiveOverlayMaterial()
+    {
+        if (_uiPerspectiveOverlayMaterial != null)
+        {
+            return _uiPerspectiveOverlayMaterial;
+        }
+
+        var shader = FindUiOverlayShader();
+        if (shader == null)
+        {
+            return null;
+        }
+
+        _uiPerspectiveOverlayMaterial = new Material(shader)
+        {
+            name = "MRBlueprintUiPerspectiveOverlay",
+            hideFlags = HideFlags.HideAndDontSave,
+            renderQueue = (int)RenderQueue.Overlay - 8
+        };
+        ConfigurePerspectiveOverlayDepth(_uiPerspectiveOverlayMaterial);
+        return _uiPerspectiveOverlayMaterial;
+    }
+
+    private static Shader FindUiOverlayShader()
+    {
+        var shader = Shader.Find("MRBlueprint/UiDepthOverlay");
+        if (shader == null)
+        {
+            shader = Shader.Find("UI/Default");
+        }
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Sprites/Default");
+        }
+
+        return shader;
+    }
+
+    private static void ConfigureOverlayDepth(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        if (material.HasProperty("_ZTest"))
+        {
+            material.SetInt("_ZTest", (int)CompareFunction.Always);
+        }
+
+        if (material.HasProperty("_ZWrite"))
+        {
+            material.SetInt("_ZWrite", 0);
+        }
+
+        if (material.HasProperty("_AlphaClipThreshold"))
+        {
+            material.SetFloat("_AlphaClipThreshold", 0.001f);
+        }
+
+        material.renderQueue = (int)RenderQueue.Overlay - 10;
+    }
+
+    private static void ConfigurePerspectiveOverlayDepth(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        if (material.HasProperty("_ZTest"))
+        {
+            material.SetInt("_ZTest", (int)CompareFunction.Always);
+        }
+
+        if (material.HasProperty("_ZWrite"))
+        {
+            material.SetInt("_ZWrite", 1);
+        }
+
+        if (material.HasProperty("_AlphaClipThreshold"))
+        {
+            material.SetFloat("_AlphaClipThreshold", 0.001f);
+        }
+
+        material.renderQueue = (int)RenderQueue.Overlay - 8;
     }
 }

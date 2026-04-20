@@ -42,11 +42,11 @@ public sealed class PhysicsLensConfig : ScriptableObject
 
     [Header("Colors")]
     [SerializeField] private Color panelBackground = new Color(0.035f, 0.04f, 0.042f, 0.94f);
-    [SerializeField] private Color panelAccent = new Color(0.12f, 0.86f, 0.78f, 1f);
-    [SerializeField] private Color textPrimary = new Color(0.93f, 0.98f, 0.96f, 1f);
-    [SerializeField] private Color textSecondary = new Color(0.65f, 0.78f, 0.75f, 1f);
-    [SerializeField] private Color chipBackground = new Color(0.11f, 0.13f, 0.13f, 0.92f);
-    [SerializeField] private Color graphGrid = new Color(0.24f, 0.32f, 0.31f, 0.55f);
+    [SerializeField] private Color panelAccent = new Color(0.22f, 0.62f, 1f, 1f);
+    [SerializeField] private Color textPrimary = new Color(0.93f, 0.97f, 1f, 1f);
+    [SerializeField] private Color textSecondary = new Color(0.64f, 0.77f, 0.9f, 1f);
+    [SerializeField] private Color chipBackground = new Color(0.08f, 0.12f, 0.16f, 0.92f);
+    [SerializeField] private Color graphGrid = new Color(0.18f, 0.28f, 0.4f, 0.55f);
     [SerializeField] private Color gravityColor = new Color(0.25f, 0.62f, 1f, 1f);
     [SerializeField] private Color userForceColor = new Color(0.32f, 0.95f, 0.48f, 1f);
     [SerializeField] private Color springCompressionColor = new Color(0.24f, 0.62f, 1f, 1f);
@@ -54,6 +54,7 @@ public sealed class PhysicsLensConfig : ScriptableObject
     [SerializeField] private Color springTensionColor = new Color(1f, 0.47f, 0.18f, 1f);
     [SerializeField] private Color hingeColor = new Color(1f, 0.78f, 0.22f, 1f);
     [SerializeField] private Color impactColor = new Color(1f, 0.22f, 0.18f, 1f);
+    [SerializeField] private Color frictionColor = new Color(0.32f, 0.78f, 1f, 1f);
     [SerializeField] private Color otherColor = new Color(0.74f, 0.78f, 0.76f, 1f);
 
     public bool FeatureEnabled => featureEnabled;
@@ -98,6 +99,7 @@ public sealed class PhysicsLensConfig : ScriptableObject
     public Color SpringTensionColor => springTensionColor;
     public Color HingeColor => hingeColor;
     public Color ImpactColor => impactColor;
+    public Color FrictionColor => frictionColor;
     public Color OtherColor => otherColor;
 
     public static PhysicsLensConfig CreateRuntimeDefault()
@@ -119,6 +121,8 @@ public sealed class PhysicsLensConfig : ScriptableObject
                 return hingeColor;
             case PhysicsLensDriver.Impact:
                 return impactColor;
+            case PhysicsLensDriver.Friction:
+                return frictionColor;
             default:
                 return otherColor;
         }

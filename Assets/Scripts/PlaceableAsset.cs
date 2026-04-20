@@ -11,6 +11,10 @@ public class PlaceableAsset : MonoBehaviour
 
     [Tooltip("Inspector gravity toggle — applied to rigidbody while simulating; in edit mode gravity may be forced off.")]
     [SerializeField] private bool gravityWhenSimulating = true;
+    [SerializeField, Range(0f, 1f)] private float friction = 0.5f;
+
+    private Collider[] _colliders;
+    private PhysicsMaterial _runtimeFrictionMaterial;
 
     public string AssetDisplayName => assetDisplayName;
     public Rigidbody Rigidbody => rb;
@@ -40,8 +44,12 @@ public class PlaceableAsset : MonoBehaviour
             targetRenderers = GetComponentsInChildren<Renderer>();
         }
 
+        CacheColliders();
+
         if (rb != null)
             gravityWhenSimulating = rb.useGravity;
+
+        ApplyFrictionToColliders();
     }
 
     private void Start()
@@ -51,6 +59,11 @@ public class PlaceableAsset : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (_runtimeFrictionMaterial != null)
+        {
+            Destroy(_runtimeFrictionMaterial);
+        }
+
         if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.SelectedAsset == this)
         {
             AssetSelectionManager.Instance.ClearSelection();
@@ -220,6 +233,65 @@ public class PlaceableAsset : MonoBehaviour
         if (rb != null)
         {
             rb.mass = Mathf.Max(0.01f, mass);
+        }
+    }
+
+    public float GetFriction()
+    {
+        return Mathf.Clamp01(friction);
+    }
+
+    public float GetDynamicFrictionCoefficient()
+    {
+        return Mathf.Lerp(0f, 1.25f, GetFriction());
+    }
+
+    public float GetStaticFrictionCoefficient()
+    {
+        return Mathf.Lerp(0f, 1.5f, GetFriction());
+    }
+
+    public void SetFriction(float value)
+    {
+        friction = Mathf.Clamp01(value);
+        ApplyFrictionToColliders();
+    }
+
+    private void CacheColliders()
+    {
+        if (_colliders == null || _colliders.Length == 0)
+        {
+            _colliders = GetComponentsInChildren<Collider>();
+        }
+    }
+
+    private void ApplyFrictionToColliders()
+    {
+        CacheColliders();
+        if (_colliders == null || _colliders.Length == 0)
+        {
+            return;
+        }
+
+        if (_runtimeFrictionMaterial == null)
+        {
+            _runtimeFrictionMaterial = new PhysicsMaterial(name + "_RuntimeFriction");
+        }
+
+        _runtimeFrictionMaterial.dynamicFriction = GetDynamicFrictionCoefficient();
+        _runtimeFrictionMaterial.staticFriction = GetStaticFrictionCoefficient();
+        _runtimeFrictionMaterial.frictionCombine = PhysicsMaterialCombine.Average;
+        _runtimeFrictionMaterial.bounceCombine = PhysicsMaterialCombine.Average;
+
+        for (var i = 0; i < _colliders.Length; i++)
+        {
+            var collider = _colliders[i];
+            if (collider == null || collider.isTrigger)
+            {
+                continue;
+            }
+
+            collider.sharedMaterial = _runtimeFrictionMaterial;
         }
     }
 

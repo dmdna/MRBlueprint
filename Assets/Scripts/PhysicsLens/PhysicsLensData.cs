@@ -8,6 +8,7 @@ public enum PhysicsLensDriver
     Spring,
     HingeJoint,
     Impact,
+    Friction,
     Other
 }
 
@@ -159,6 +160,8 @@ public static class PhysicsLensFormat
                 return "Hinge";
             case PhysicsLensDriver.Impact:
                 return "Impact";
+            case PhysicsLensDriver.Friction:
+                return "Friction";
             case PhysicsLensDriver.Other:
                 return "Other";
             default:

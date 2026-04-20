@@ -3,6 +3,12 @@ using UnityEngine.UI;
 
 public sealed class TimelineGraphRenderer : MonoBehaviour
 {
+    private const float TopLabelCenterInset = 13f;
+    private const float BottomLabelCenterInset = 15f;
+    private const float PlotHorizontalInset = 16f;
+    private const float PlotBottomInset = 31f;
+    private const float PlotTopInset = 31f;
+
     private PhysicsLensConfig _config;
     private RectTransform _root;
     private PhysicsLensSample[] _sampleScratch;
@@ -50,6 +56,7 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
         _graphSize = size;
         if (_root != null)
             _root.sizeDelta = size;
+        RepositionLabels();
         RefreshGrid();
     }
 
@@ -151,6 +158,17 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
 
         _scaleLabel = PhysicsLensRenderUtility.CreateText(transform, "TimelineScaleLabel", font, 14, TextAnchor.UpperRight,
             _config != null ? _config.TextSecondary : Color.gray, new Vector2(151f, 78f), new Vector2(140f, 22f));
+        RepositionLabels();
+    }
+
+    private void RepositionLabels()
+    {
+        var halfWidth = _graphSize.x * 0.5f;
+        var halfHeight = _graphSize.y * 0.5f;
+        SetLabelRect(_modeLabel, new Vector2(-halfWidth + 18f, halfHeight - TopLabelCenterInset), new Vector2(176f, 22f), new Vector2(0f, 0.5f));
+        SetLabelRect(_scaleLabel, new Vector2(halfWidth - 16f, halfHeight - TopLabelCenterInset), new Vector2(128f, 22f), new Vector2(1f, 0.5f));
+        SetLabelRect(_axisLabel, new Vector2(-halfWidth + 18f, -halfHeight + BottomLabelCenterInset), new Vector2(120f, 20f), new Vector2(0f, 0.5f));
+        SetLabelRect(_timeLabel, new Vector2(halfWidth - 16f, -halfHeight + BottomLabelCenterInset), new Vector2(132f, 20f), new Vector2(1f, 0.5f));
     }
 
     private void CreateMeshObject(string name, Material material, out Mesh mesh)
@@ -192,8 +210,8 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
         var segmentIndex = 0;
         var halfWidth = _graphSize.x * 0.5f;
         var halfHeight = _graphSize.y * 0.5f;
-        var bottom = -halfHeight + 18f;
-        var usableHeight = _graphSize.y - 42f;
+        var bottom = -halfHeight + PlotBottomInset;
+        var usableHeight = _graphSize.y - PlotBottomInset - PlotTopInset;
         var baseWidth = _config != null ? _config.TimelineBaseWidth : 4f;
         var forceWidth = _config != null ? _config.TimelineForceWidth : 8f;
 
@@ -244,8 +262,8 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
         var markerIndex = 0;
         var halfWidth = _graphSize.x * 0.5f;
         var halfHeight = _graphSize.y * 0.5f;
-        var bottom = -halfHeight + 18f;
-        var usableHeight = _graphSize.y - 42f;
+        var bottom = -halfHeight + PlotBottomInset;
+        var usableHeight = _graphSize.y - PlotBottomInset - PlotTopInset;
 
         for (var i = 0; i < count; i++)
         {
@@ -280,7 +298,7 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
     private Vector3 SampleToPoint(PhysicsLensSample sample, float oldestTime, float history, float halfWidth, float bottom, float usableHeight)
     {
         var t = Mathf.Clamp01((sample.Time - oldestTime) / Mathf.Max(0.001f, history));
-        var x = Mathf.Lerp(-halfWidth + 12f, halfWidth - 12f, t);
+        var x = Mathf.Lerp(-halfWidth + PlotHorizontalInset, halfWidth - PlotHorizontalInset, t);
         var y = bottom + Mathf.Clamp01(sample.Speed / _smoothMaxSpeed) * usableHeight;
         return new Vector3(x, y, 0f);
     }
@@ -292,7 +310,7 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
 
         var halfWidth = _graphSize.x * 0.5f;
         var halfHeight = _graphSize.y * 0.5f;
-        var point = SampleToPoint(sample, oldestTime, history, halfWidth, -halfHeight + 18f, _graphSize.y - 42f);
+        var point = SampleToPoint(sample, oldestTime, history, halfWidth, -halfHeight + PlotBottomInset, _graphSize.y - PlotBottomInset - PlotTopInset);
         _head.localPosition = new Vector3(point.x, point.y, -13f);
         var pulse = 1f + Mathf.Sin(Time.unscaledTime * 9f) * 0.14f;
         _head.localScale = Vector3.one * 10f * pulse;
@@ -310,10 +328,10 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
         var color = _config != null ? _config.GraphGrid : new Color(1f, 1f, 1f, 0.3f);
         var halfWidth = _graphSize.x * 0.5f;
         var halfHeight = _graphSize.y * 0.5f;
-        var left = -halfWidth + 12f;
-        var right = halfWidth - 12f;
-        var bottom = -halfHeight + 18f;
-        var top = halfHeight - 20f;
+        var left = -halfWidth + PlotHorizontalInset;
+        var right = halfWidth - PlotHorizontalInset;
+        var bottom = -halfHeight + PlotBottomInset;
+        var top = halfHeight - PlotTopInset;
         var index = 0;
 
         for (var i = 0; i < 4; i++)
@@ -416,5 +434,18 @@ public sealed class TimelineGraphRenderer : MonoBehaviour
             vertices[i] = Vector3.zero;
             colors[i] = clear;
         }
+    }
+
+    private static void SetLabelRect(Text text, Vector2 anchoredPosition, Vector2 size, Vector2 pivot)
+    {
+        if (text == null)
+            return;
+
+        var rect = text.rectTransform;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = pivot;
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = size;
     }
 }

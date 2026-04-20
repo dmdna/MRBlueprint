@@ -4,7 +4,7 @@ using UnityEngine.UI;
 
 public sealed class PhysicsLensPanelController : MonoBehaviour
 {
-    private static readonly string[] CauseLabels = { "Gravity", "User", "Spring", "Hinge", "Impact", "Other" };
+    private static readonly string[] CauseLabels = { "Gravity", "User", "Spring", "Hinge", "Impact", "Friction", "Other" };
 
     private PhysicsLensConfig _config;
     private Canvas _canvas;
@@ -21,10 +21,11 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
     private Text _massChipText;
     private Text _gravityChipText;
     private Text _pinText;
+    private Text _settingsText;
     private readonly Text[] _heroLabels = new Text[3];
     private readonly Text[] _heroValues = new Text[3];
-    private readonly Image[] _causeImages = new Image[6];
-    private readonly Text[] _causeTexts = new Text[6];
+    private readonly Image[] _causeImages = new Image[CauseLabels.Length];
+    private readonly Text[] _causeTexts = new Text[CauseLabels.Length];
     private Text _eventText;
     private Text _insightText;
     private GameObject _expandedRoot;
@@ -43,9 +44,16 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
     private bool _hasSmoothedPose;
 
     public event Action PinPressed;
+    public event Action SettingsPressed;
 
     public bool IsExpanded => _isExpanded;
     public bool IsPinned => _isPinned;
+    public bool IsOpen => _isOpen;
+    public bool IsSettingsOpen { get; private set; } = true;
+    public Vector2 CurrentPanelSize => _config != null
+        ? (_isExpanded ? _config.ExpandedPanelSize : _config.CompactPanelSize)
+        : new Vector2(430f, 520f);
+    public float CanvasWorldScale => _config != null ? _config.CanvasWorldScale : 0.00165f;
 
     public void Initialize(PhysicsLensConfig config)
     {
@@ -107,6 +115,36 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
             _advancedRoot.SetActive(false);
 
         ApplyLayout();
+    }
+
+    public void SetSettingsOpen(bool open)
+    {
+        IsSettingsOpen = open;
+        if (_settingsText != null)
+        {
+            _settingsText.color = open
+                ? (_config != null ? _config.PanelAccent : Color.cyan)
+                : (_config != null ? _config.TextPrimary : Color.white);
+        }
+    }
+
+    public bool TryGetSettingsDockPose(Vector2 settingsSize, out Vector3 position, out Quaternion rotation, out float worldScale)
+    {
+        position = default;
+        rotation = default;
+        worldScale = CanvasWorldScale;
+
+        if (!_isOpen || _panelRect == null)
+        {
+            return false;
+        }
+
+        var panelSize = CurrentPanelSize;
+        var localX = panelSize.x * 0.5f + settingsSize.x * 0.5f + 18f;
+        position = transform.TransformPoint(new Vector3(localX, 0f, 0f));
+        rotation = transform.rotation;
+        worldScale = CanvasWorldScale;
+        return true;
     }
 
     public void UpdateTelemetry(PhysicsTelemetryTracker tracker)
@@ -266,6 +304,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         _massChipText = CreateChipText(panel.transform, "MassChip", font, 15);
         _gravityChipText = CreateChipText(panel.transform, "GravityChip", font, 15);
         CreatePinButton(panel.transform, font);
+        CreateSettingsButton(panel.transform, font);
 
         for (var i = 0; i < 3; i++)
         {
@@ -339,14 +378,14 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         for (var i = 0; i < labels.Length; i++)
         {
             var x = i < 6 ? -132f : 132f;
-            var y = 78f - (i % 6) * 28f;
-            PhysicsLensRenderUtility.CreateText(_expandedRoot.transform, "MetricLabel" + i, font, 14,
-                TextAnchor.MiddleLeft, _config.TextSecondary, new Vector2(x - 80f, y), new Vector2(122f, 24f)).text = labels[i];
-            _expandedValues[i] = PhysicsLensRenderUtility.CreateText(_expandedRoot.transform, "MetricValue" + i, font, 15,
-                TextAnchor.MiddleRight, _config.TextPrimary, new Vector2(x + 70f, y), new Vector2(146f, 24f));
+            var y = 46f - (i % 6) * 20f;
+            PhysicsLensRenderUtility.CreateText(_expandedRoot.transform, "MetricLabel" + i, font, 12,
+                TextAnchor.MiddleLeft, _config.TextSecondary, new Vector2(x - 72f, y), new Vector2(108f, 18f)).text = labels[i];
+            _expandedValues[i] = PhysicsLensRenderUtility.CreateText(_expandedRoot.transform, "MetricValue" + i, font, 13,
+                TextAnchor.MiddleRight, _config.TextPrimary, new Vector2(x + 38f, y), new Vector2(96f, 18f));
         }
 
-        _advancedButton = CreateSmallButton(_expandedRoot.transform, "AdvancedButton", "Advanced", font, new Vector2(196f, -89f), new Vector2(88f, 26f));
+        _advancedButton = CreateSmallButton(_expandedRoot.transform, "AdvancedButton", "Advanced", font, new Vector2(196f, -56f), new Vector2(88f, 22f));
         _advancedButton.onClick.AddListener(ToggleAdvanced);
         _advancedButtonText = _advancedButton.GetComponentInChildren<Text>();
 
@@ -356,10 +395,10 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         advancedRect.anchorMin = new Vector2(0.5f, 0.5f);
         advancedRect.anchorMax = new Vector2(0.5f, 0.5f);
         advancedRect.pivot = new Vector2(0.5f, 0.5f);
-        advancedRect.anchoredPosition = new Vector2(0f, -122f);
-        advancedRect.sizeDelta = new Vector2(440f, 44f);
-        _advancedText = PhysicsLensRenderUtility.CreateText(_advancedRoot.transform, "AdvancedText", font, 13,
-            TextAnchor.MiddleCenter, _config.TextSecondary, Vector2.zero, new Vector2(430f, 42f));
+        advancedRect.anchoredPosition = new Vector2(0f, -56f);
+        advancedRect.sizeDelta = new Vector2(430f, 30f);
+        _advancedText = PhysicsLensRenderUtility.CreateText(_advancedRoot.transform, "AdvancedText", font, 12,
+            TextAnchor.MiddleCenter, _config.TextSecondary, Vector2.zero, new Vector2(420f, 28f));
         _advancedRoot.SetActive(false);
         _expandedRoot.SetActive(false);
     }
@@ -399,9 +438,17 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
 
     private void CreatePinButton(Transform parent, Font font)
     {
-        var button = CreateSmallButton(parent, "PinButton", "Pin", font, Vector2.zero, new Vector2(70f, 28f));
+        var button = CreateSmallButton(parent, "PinButton", "Pin", font, Vector2.zero, new Vector2(64f, 28f));
         button.onClick.AddListener(HandlePinClicked);
         _pinText = button.GetComponentInChildren<Text>();
+    }
+
+    private void CreateSettingsButton(Transform parent, Font font)
+    {
+        var button = CreateSmallButton(parent, "SettingsButton", "⚙", font, Vector2.zero, new Vector2(34f, 28f));
+        button.onClick.AddListener(HandleSettingsClicked);
+        _settingsText = button.GetComponentInChildren<Text>();
+        SetSettingsOpen(IsSettingsOpen);
     }
 
     private Button CreateSmallButton(Transform parent, string name, string label, Font font, Vector2 anchoredPosition, Vector2 size)
@@ -445,9 +492,10 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         var halfW = size.x * 0.5f;
         var halfH = size.y * 0.5f;
 
-        SetRect(_titleText.rectTransform, new Vector2(-halfW + 28f, halfH - 34f), new Vector2(size.x - 190f, 36f), new Vector2(0f, 0.5f));
-        SetRect(_stateBadgeText.transform.parent as RectTransform, new Vector2(halfW - 118f, halfH - 34f), new Vector2(100f, 26f), new Vector2(0.5f, 0.5f));
-        SetRect(_pinText.transform.parent as RectTransform, new Vector2(halfW - 42f, halfH - 34f), new Vector2(70f, 28f), new Vector2(0.5f, 0.5f));
+        SetRect(_titleText.rectTransform, new Vector2(-halfW + 28f, halfH - 34f), new Vector2(Mathf.Max(120f, size.x - 330f), 36f), new Vector2(0f, 0.5f));
+        SetRect(_stateBadgeText.transform.parent as RectTransform, new Vector2(halfW - 182f, halfH - 34f), new Vector2(92f, 26f), new Vector2(0.5f, 0.5f));
+        SetRect(_pinText.transform.parent as RectTransform, new Vector2(halfW - 91f, halfH - 34f), new Vector2(64f, 28f), new Vector2(0.5f, 0.5f));
+        SetRect(_settingsText.transform.parent as RectTransform, new Vector2(halfW - 34f, halfH - 34f), new Vector2(34f, 28f), new Vector2(0.5f, 0.5f));
 
         SetRect(_massChipText.transform.parent as RectTransform, new Vector2(-halfW + 78f, halfH - 76f), new Vector2(126f, 26f), new Vector2(0.5f, 0.5f));
         SetRect(_gravityChipText.transform.parent as RectTransform, new Vector2(-halfW + 210f, halfH - 76f), new Vector2(126f, 26f), new Vector2(0.5f, 0.5f));
@@ -460,7 +508,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         }
 
         var causeY = halfH - 194f;
-        var causeWidth = Mathf.Min(64f, (size.x - 56f) / 6f);
+        var causeWidth = Mathf.Min(58f, (size.x - 56f) / CauseLabels.Length);
         for (var i = 0; i < CauseLabels.Length; i++)
         {
             var rect = _causeImages[i].transform as RectTransform;
@@ -492,7 +540,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         if (_expandedRoot != null)
         {
             var expandedRect = _expandedRoot.transform as RectTransform;
-            SetRect(expandedRect, new Vector2(0f, -34f), new Vector2(size.x - 56f, 186f), new Vector2(0.5f, 0.5f));
+            SetRect(expandedRect, new Vector2(0f, 0f), new Vector2(size.x - 56f, 124f), new Vector2(0.5f, 0.5f));
         }
     }
 
@@ -523,7 +571,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         if (graphMode == PhysicsLensGraphMode.HingePhaseRibbon)
         {
             SetHero(0, "Angle", constraint.HingeAngle.ToString("0.0") + " deg");
-            SetHero(1, "Torque", PhysicsLensFormat.ShortNumber(constraint.TorqueMagnitude, "Nm"));
+            SetHero(1, "Torque", PhysicsLensFormat.ShortNumber(constraint.TorqueMagnitude, "N·m"));
             SetHero(2, "Limit", PhysicsInsightGenerator.BuildConstraintLimitText(constraint));
             return;
         }
@@ -614,6 +662,8 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
                 return PhysicsLensDriver.HingeJoint;
             case 4:
                 return PhysicsLensDriver.Impact;
+            case 5:
+                return PhysicsLensDriver.Friction;
             default:
                 return PhysicsLensDriver.Other;
         }
@@ -622,6 +672,11 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
     private void HandlePinClicked()
     {
         PinPressed?.Invoke();
+    }
+
+    private void HandleSettingsClicked()
+    {
+        SettingsPressed?.Invoke();
     }
 
     private void ToggleAdvanced()

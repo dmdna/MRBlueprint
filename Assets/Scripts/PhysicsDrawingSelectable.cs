@@ -576,6 +576,22 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
     public bool TryAttachEndpointToPlaceableOnRelease(PhysicsDrawingEndpoint endpoint)
     {
+        if (physicsIntent == PhysicsIntentType.Impulse)
+        {
+            if (!TryFindLinearEndpointAttachmentCandidate(
+                    endpoint,
+                    null,
+                    out var impulsePlaceable,
+                    out var impulseProbe)
+                || impulseProbe.CandidateDistance > attachmentSnapDistance)
+            {
+                RefreshAttachmentVisual();
+                return false;
+            }
+
+            return AttachLinearEndpoint(impulsePlaceable, impulseProbe);
+        }
+
         if (physicsIntent != PhysicsIntentType.Spring)
         {
             return false;
@@ -600,6 +616,16 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
     public void DetachSpringEndpointForDrag(PhysicsDrawingEndpoint endpoint)
     {
+        if (physicsIntent == PhysicsIntentType.Impulse)
+        {
+            if (_attachedPlaceable != null && _attachedLinearEndpoint == endpoint)
+            {
+                DetachFromPlaceable();
+            }
+
+            return;
+        }
+
         if (physicsIntent != PhysicsIntentType.Spring)
         {
             return;
@@ -666,6 +692,26 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         _previewPlaceable = null;
         CaptureSpringEndpointAttachmentGeometry();
         RefreshAttachmentVisual();
+        return true;
+    }
+
+    private bool AttachLinearEndpoint(PlaceableAsset placeable, LinearAttachmentProbe probe)
+    {
+        if (placeable == null || physicsIntent == PhysicsIntentType.Hinge)
+        {
+            return false;
+        }
+
+        _attachedStartPlaceable = null;
+        _attachedEndPlaceable = null;
+        _attachedPlaceable = placeable;
+        _attachedLinearEndpoint = probe.Endpoint;
+        _previewPlaceable = null;
+
+        SetEndpointWorldPosition(probe.Endpoint, probe.SnapPoint);
+        CaptureAttachmentLocalGeometry();
+        RefreshAttachmentVisual();
+        ApplyHighlightState();
         return true;
     }
 
@@ -762,6 +808,30 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         worldPoint = endpoint == PhysicsDrawingEndpoint.Start
             ? placeable.transform.TransformPoint(_attachedStartLocalPoint)
             : placeable.transform.TransformPoint(_attachedEndLocalPoint);
+        return true;
+    }
+
+    public bool TryGetEndpointAttachment(
+        PhysicsDrawingEndpoint endpoint,
+        out PlaceableAsset placeable,
+        out Vector3 worldPoint)
+    {
+        if (TryGetSpringEndpointAttachment(endpoint, out placeable, out worldPoint))
+        {
+            return true;
+        }
+
+        placeable = null;
+        worldPoint = default;
+        if (physicsIntent != PhysicsIntentType.Impulse
+            || _attachedPlaceable == null
+            || _attachedLinearEndpoint != endpoint)
+        {
+            return false;
+        }
+
+        placeable = _attachedPlaceable;
+        worldPoint = ResolveLinearEndpointWorldPosition(endpoint);
         return true;
     }
 

@@ -9,6 +9,16 @@ using UnityEngine.InputSystem.UI;
 /// </summary>
 public class PlaceableInspectorPanel : MonoBehaviour
 {
+    private static readonly Vector2 ObjectPanelSize = new Vector2(300f, 492f);
+    private static readonly Vector2 DrawingPanelSize = new Vector2(300f, 176f);
+    private static readonly Color PanelBackground = new Color(0.035f, 0.04f, 0.048f, 0.94f);
+    private static readonly Color PanelAccent = new Color(0.22f, 0.62f, 1f, 1f);
+    private static readonly Color TextPrimary = new Color(0.93f, 0.97f, 1f, 1f);
+    private static readonly Color TextSecondary = new Color(0.64f, 0.77f, 0.9f, 1f);
+    private static readonly Color ChipBackground = new Color(0.08f, 0.12f, 0.16f, 0.95f);
+    private static readonly Color TrackBackground = new Color(0.12f, 0.17f, 0.22f, 0.95f);
+    private static readonly Color DangerColor = new Color(0.62f, 0.18f, 0.2f, 1f);
+
     [SerializeField] private float massMin = 0.1f;
     [SerializeField] private float massMax = 50f;
     [SerializeField] private float scaleMin = 0.2f;
@@ -20,7 +30,10 @@ public class PlaceableInspectorPanel : MonoBehaviour
     [SerializeField] private Vector3 headsetPanelLocalPosition = new Vector3(0.32f, 0f, 1.15f);
     [SerializeField] private Vector3 headsetPanelLocalEuler = Vector3.zero;
     [SerializeField] private float headsetPanelWorldScale = 0.0015f;
-    [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(320f, 456f);
+    [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(320f, 500f);
+
+    public static PlaceableInspectorPanel Instance { get; private set; }
+    public Vector2 DockPanelSize => ObjectPanelSize;
 
     private PlaceableAsset _target;
     private PhysicsDrawingSelectable _drawingTarget;
@@ -29,8 +42,12 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private GameObject _canvasRoot;
     private GameObject _panelRoot;
     private GameObject _drawingPanelRoot;
+    private Canvas _canvas;
+    private CanvasScaler _canvasScaler;
+    private RectTransform _canvasRect;
     private Slider _massSlider;
     private Slider _scaleSlider;
+    private Slider _frictionSlider;
     private Slider _valueSlider;
     private Slider _drawingSpringStiffnessSlider;
     private Slider _drawingHingeTorqueSlider;
@@ -48,7 +65,25 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private float _v = 1f;
     private Text _titleLabel;
     private Text _drawingTitleLabel;
+    private Text _massValueLabel;
+    private Text _scaleValueLabel;
+    private Text _frictionValueLabel;
+    private Text _drawingSpringStiffnessValueLabel;
+    private Text _drawingHingeTorqueValueLabel;
+    private Text _drawingImpulseForceValueLabel;
     private bool _suppressCallbacks;
+    private bool _lensDockActive;
+    private bool _lensSettingsVisible = true;
+
+    private float EffectiveScaleMax => Mathf.Lerp(scaleMin, scaleMax, 0.5f);
+
+    private void Awake()
+    {
+        if (Instance == null || Instance == this)
+        {
+            Instance = this;
+        }
+    }
 
     private void Start()
     {
@@ -66,6 +101,11 @@ public class PlaceableInspectorPanel : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+
         if (AssetSelectionManager.Instance != null)
         {
             AssetSelectionManager.Instance.OnSelectionChanged -= OnSelectionChanged;
@@ -90,7 +130,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         var hasTarget = _target != null;
-        _panelRoot.SetActive(hasTarget);
+        RefreshPanelVisibility();
         if (hasTarget && _drawingPanelRoot != null)
         {
             _drawingPanelRoot.SetActive(false);
@@ -112,11 +152,14 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _suppressCallbacks = true;
         _titleLabel.text = string.IsNullOrEmpty(_target.AssetDisplayName) ? "Object" : _target.AssetDisplayName;
         _massSlider.SetValueWithoutNotify(Mathf.InverseLerp(massMin, massMax, _target.GetMass()));
-        _scaleSlider.SetValueWithoutNotify(Mathf.InverseLerp(scaleMin, scaleMax, _scaleUniformRef));
+        _scaleSlider.SetValueWithoutNotify(Mathf.InverseLerp(scaleMin, EffectiveScaleMax, _scaleUniformRef));
+        if (_frictionSlider != null)
+            _frictionSlider.SetValueWithoutNotify(_target.GetFriction());
         Color.RGBToHSV(_target.GetColor(), out _h, out _s, out _v);
         _valueSlider.SetValueWithoutNotify(_v);
         _hueWheel?.SetThumbFromHs(_h, _s);
         _gravityToggle.SetIsOnWithoutNotify(_target.GetUseGravity());
+        RefreshObjectReadouts();
         _suppressCallbacks = false;
     }
 
@@ -129,7 +172,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         var hasDrawing = _drawingTarget != null;
-        _drawingPanelRoot.SetActive(hasDrawing);
+        RefreshPanelVisibility();
         if (!hasDrawing)
         {
             return;
@@ -145,6 +188,66 @@ public class PlaceableInspectorPanel : MonoBehaviour
             : _drawingTarget.DisplayName;
 
         RefreshDrawingControls();
+    }
+
+    public void DockToPhysicsLens(Camera camera, Vector3 worldPosition, Quaternion worldRotation, float worldScale, bool visible)
+    {
+        if (_canvasRoot == null || _canvas == null || _canvasScaler == null)
+        {
+            return;
+        }
+
+        _lensDockActive = true;
+        _lensSettingsVisible = visible;
+
+        _canvasRoot.transform.SetParent(null, true);
+        _canvasRoot.transform.SetPositionAndRotation(worldPosition, worldRotation);
+        _canvasRoot.transform.localScale = Vector3.one * Mathf.Max(0.0001f, worldScale);
+
+        _canvas.renderMode = RenderMode.WorldSpace;
+        _canvas.worldCamera = camera != null ? camera : Camera.main;
+        if (_canvasRect != null)
+        {
+            _canvasRect.sizeDelta = ObjectPanelSize;
+        }
+
+        _canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        _canvasScaler.dynamicPixelsPerUnit = 10f;
+        ApplyPanelPlacement(true);
+        RefreshPanelVisibility();
+    }
+
+    public void ClearPhysicsLensDock()
+    {
+        if (!_lensDockActive)
+        {
+            return;
+        }
+
+        _lensDockActive = false;
+        _lensSettingsVisible = true;
+        ApplyDefaultCanvasPlacement();
+        ApplyPanelPlacement(false);
+        RefreshPanelVisibility();
+    }
+
+    public void SetPhysicsLensSettingsVisible(bool visible)
+    {
+        _lensSettingsVisible = visible;
+        RefreshPanelVisibility();
+    }
+
+    private void RefreshPanelVisibility()
+    {
+        if (_panelRoot != null)
+        {
+            _panelRoot.SetActive(_target != null && (!_lensDockActive || _lensSettingsVisible));
+        }
+
+        if (_drawingPanelRoot != null)
+        {
+            _drawingPanelRoot.SetActive(_drawingTarget != null && !_lensDockActive);
+        }
     }
 
     private void EnsureEventSystem()
@@ -169,26 +272,31 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _panelRoot = new GameObject("Panel");
         _panelRoot.transform.SetParent(canvasGo.transform, false);
         var bg = _panelRoot.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.08f, 0.1f, 0.92f);
+        bg.color = PanelBackground;
+        bg.raycastTarget = true;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(bg);
         var rt = _panelRoot.GetComponent<RectTransform>();
         rt.anchorMin = new Vector2(1f, 1f);
         rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(1f, 1f);
         rt.anchoredPosition = new Vector2(-12f, -12f);
-        rt.sizeDelta = new Vector2(280f, 432f);
+        rt.sizeDelta = ObjectPanelSize;
 
-        float y = -10f;
-        const float rowH = 22f;
-        const float gap = 6f;
+        float y = -14f;
+        const float rowH = 24f;
+        const float gap = 7f;
 
-        _titleLabel = CreateLabel(_panelRoot.transform, "Title", "Object", 16, ref y, rowH + 4);
+        _titleLabel = CreateLabel(_panelRoot.transform, "Title", "Object", 18, ref y, 30f);
+        CreateAccentRule(_panelRoot.transform, y + 2f, 248f);
+        y -= 10f;
 
         CreateRotateButtonRow(_panelRoot.transform, ref y, rowH + 4, gap);
 
-        _massSlider = CreateLabeledSlider(_panelRoot.transform, "Mass", ref y, rowH, gap, OnMassChanged);
-        _scaleSlider = CreateLabeledSlider(_panelRoot.transform, "Scale", ref y, rowH, gap, OnScaleChanged);
+        _massSlider = CreateLabeledSliderWithValue(_panelRoot.transform, "Mass", ref y, rowH, gap, OnMassChanged, out _massValueLabel);
+        _scaleSlider = CreateLabeledSliderWithValue(_panelRoot.transform, "Scale", ref y, rowH, gap, OnScaleChanged, out _scaleValueLabel);
+        _frictionSlider = CreateLabeledSliderWithValue(_panelRoot.transform, "Friction", ref y, rowH, gap, OnFrictionChanged, out _frictionValueLabel);
 
-        CreateLabel(_panelRoot.transform, "ColorHdr", "Color", 12, ref y, 16f);
+        CreateLabel(_panelRoot.transform, "ColorHdr", "Color", 13, ref y, 18f);
         BuildHueSaturationWheel(_panelRoot.transform, ref y, gap);
         _valueSlider = CreateLabeledSlider(_panelRoot.transform, "Brightness", ref y, rowH, gap, OnBrightnessChanged);
 
@@ -199,6 +307,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
 
         _panelRoot.SetActive(false);
         BuildDrawingUi(canvasGo.transform);
+        ApplyPanelPlacement(false);
     }
 
     private void BuildDrawingUi(Transform canvasTransform)
@@ -206,31 +315,35 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _drawingPanelRoot = new GameObject("DrawingPanel");
         _drawingPanelRoot.transform.SetParent(canvasTransform, false);
         var bg = _drawingPanelRoot.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.08f, 0.1f, 0.92f);
+        bg.color = PanelBackground;
+        bg.raycastTarget = true;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(bg);
         var rt = _drawingPanelRoot.GetComponent<RectTransform>();
         rt.anchorMin = new Vector2(1f, 1f);
         rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(1f, 1f);
         rt.anchoredPosition = new Vector2(-12f, -12f);
-        rt.sizeDelta = new Vector2(280f, 164f);
+        rt.sizeDelta = DrawingPanelSize;
 
-        float y = -12f;
-        const float rowH = 22f;
-        const float gap = 6f;
+        float y = -14f;
+        const float rowH = 24f;
+        const float gap = 7f;
         _drawingTitleLabel = CreateLabel(_drawingPanelRoot.transform, "DrawingTitle", "Drawing", 18, ref y, 28f);
-        _drawingSpringStiffnessSlider = CreateLabeledSlider(
+        CreateAccentRule(_drawingPanelRoot.transform, y + 2f, 248f);
+        y -= 10f;
+        _drawingSpringStiffnessSlider = CreateLabeledSliderWithValue(
             _drawingPanelRoot.transform, "Stiffness", ref y, rowH, gap, OnDrawingSpringStiffnessChanged,
-            out _drawingSpringStiffnessRow);
-        _drawingHingeTorqueSlider = CreateLabeledSlider(
+            out _drawingSpringStiffnessRow, out _drawingSpringStiffnessValueLabel);
+        _drawingHingeTorqueSlider = CreateLabeledSliderWithValue(
             _drawingPanelRoot.transform, "Torque", ref y, rowH, gap, OnDrawingHingeTorqueChanged,
-            out _drawingHingeTorqueRow);
-        _drawingImpulseForceSlider = CreateLabeledSlider(
+            out _drawingHingeTorqueRow, out _drawingHingeTorqueValueLabel);
+        _drawingImpulseForceSlider = CreateLabeledSliderWithValue(
             _drawingPanelRoot.transform, "Force", ref y, rowH, gap, OnDrawingImpulseForceChanged,
-            out _drawingImpulseForceRow);
+            out _drawingImpulseForceRow, out _drawingImpulseForceValueLabel);
         _drawingImpulseInstantToggle = CreateLabeledToggle(
             _drawingPanelRoot.transform, "Instant", ref y, rowH, gap, OnDrawingImpulseInstantChanged,
             out _drawingImpulseInstantRow);
-        var deleteY = -120f;
+        var deleteY = -132f;
         CreateButton(_drawingPanelRoot.transform, "Delete", ref deleteY, rowH + 6, gap, OnDrawingDeleteClicked);
         HideAllDrawingControlRows();
         _drawingPanelRoot.SetActive(false);
@@ -239,29 +352,81 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private void ConfigureCanvas(GameObject canvasGo, Canvas canvas)
     {
         _canvasRoot = canvasGo;
-        var scaler = canvasGo.AddComponent<CanvasScaler>();
+        _canvas = canvas;
+        _canvasRect = canvasGo.GetComponent<RectTransform>();
+        _canvasScaler = canvasGo.AddComponent<CanvasScaler>();
+        ApplyDefaultCanvasPlacement();
+    }
+
+    private void ApplyDefaultCanvasPlacement()
+    {
+        if (_canvasRoot == null || _canvas == null || _canvasScaler == null)
+        {
+            return;
+        }
 
         if (!useHeadsetAnchoredCanvas)
         {
-            canvasGo.transform.SetParent(transform, false);
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            _canvasRoot.transform.SetParent(transform, false);
+            _canvasRoot.transform.localPosition = Vector3.zero;
+            _canvasRoot.transform.localRotation = Quaternion.identity;
+            _canvasRoot.transform.localScale = Vector3.one;
+            _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            _canvas.worldCamera = null;
+            _canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             return;
         }
 
         var anchor = ResolveHeadsetPanelAnchor();
-        canvasGo.transform.SetParent(anchor != null ? anchor : transform, false);
-        canvas.renderMode = RenderMode.WorldSpace;
-        canvas.worldCamera = ResolveHeadsetPanelCamera(anchor);
+        _canvasRoot.transform.SetParent(anchor != null ? anchor : transform, false);
+        _canvas.renderMode = RenderMode.WorldSpace;
+        _canvas.worldCamera = ResolveHeadsetPanelCamera(anchor);
 
-        var canvasRect = canvasGo.GetComponent<RectTransform>();
-        canvasRect.sizeDelta = headsetPanelCanvasSize;
-        canvasRect.localPosition = headsetPanelLocalPosition;
-        canvasRect.localRotation = Quaternion.Euler(headsetPanelLocalEuler);
-        canvasRect.localScale = Vector3.one * headsetPanelWorldScale;
+        if (_canvasRect != null)
+        {
+            _canvasRect.sizeDelta = headsetPanelCanvasSize;
+            _canvasRect.localPosition = headsetPanelLocalPosition;
+            _canvasRect.localRotation = Quaternion.Euler(headsetPanelLocalEuler);
+            _canvasRect.localScale = Vector3.one * headsetPanelWorldScale;
+        }
 
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
-        scaler.dynamicPixelsPerUnit = 10f;
+        _canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        _canvasScaler.dynamicPixelsPerUnit = 10f;
+    }
+
+    private void ApplyPanelPlacement(bool docked)
+    {
+        ApplyPanelPlacement(_panelRoot, ObjectPanelSize, docked);
+        ApplyPanelPlacement(_drawingPanelRoot, DrawingPanelSize, docked);
+    }
+
+    private static void ApplyPanelPlacement(GameObject panelRoot, Vector2 size, bool docked)
+    {
+        if (panelRoot == null)
+        {
+            return;
+        }
+
+        var rect = panelRoot.GetComponent<RectTransform>();
+        if (rect == null)
+        {
+            return;
+        }
+
+        rect.sizeDelta = size;
+        if (docked)
+        {
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            return;
+        }
+
+        rect.anchorMin = new Vector2(1f, 1f);
+        rect.anchorMax = new Vector2(1f, 1f);
+        rect.pivot = new Vector2(1f, 1f);
+        rect.anchoredPosition = new Vector2(-12f, -12f);
     }
 
     private Transform ResolveHeadsetPanelAnchor()
@@ -298,6 +463,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         _target.SetMass(Mathf.Lerp(massMin, massMax, t));
+        RefreshObjectReadouts();
     }
 
     private void OnScaleChanged(float t)
@@ -307,8 +473,20 @@ public class PlaceableInspectorPanel : MonoBehaviour
             return;
         }
 
-        var u = Mathf.Lerp(scaleMin, scaleMax, t);
+        var u = Mathf.Lerp(scaleMin, EffectiveScaleMax, t);
         _target.SetScale(_scaleBasis * (u / _scaleUniformRef));
+        RefreshObjectReadouts();
+    }
+
+    private void OnFrictionChanged(float t)
+    {
+        if (_suppressCallbacks || _target == null)
+        {
+            return;
+        }
+
+        _target.SetFriction(t);
+        RefreshObjectReadouts();
     }
 
     private void OnWheelHsChanged(float h, float s)
@@ -368,6 +546,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         wheelImg.sprite = spr;
         wheelImg.preserveAspect = true;
         wheelImg.raycastTarget = true;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(wheelImg);
 
         var thumbGo = new GameObject("Thumb");
         thumbGo.transform.SetParent(wheelGo.transform, false);
@@ -380,8 +559,9 @@ public class PlaceableInspectorPanel : MonoBehaviour
         var whiteTex = Texture2D.whiteTexture;
         thumbImg.sprite = Sprite.Create(
             whiteTex, new Rect(0, 0, whiteTex.width, whiteTex.height), new Vector2(0.5f, 0.5f), 100f);
-        thumbImg.color = Color.white;
+        thumbImg.color = TextPrimary;
         thumbImg.raycastTarget = false;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(thumbImg);
 
         _hueWheel = wheelGo.AddComponent<HueSaturationWheelControl>();
         _hueWheel.Init(thumbRt);
@@ -400,6 +580,71 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _target.SetUseGravity(on);
     }
 
+    private void RefreshObjectReadouts()
+    {
+        if (_target == null)
+        {
+            return;
+        }
+
+        if (_massValueLabel != null)
+        {
+            _massValueLabel.text = _target.GetMass().ToString("0.##") + " kg";
+        }
+
+        if (_scaleValueLabel != null && _scaleSlider != null)
+        {
+            _scaleValueLabel.text = Mathf.RoundToInt(Mathf.Clamp01(_scaleSlider.value) * 100f) + "%";
+        }
+
+        if (_frictionValueLabel != null)
+        {
+            _frictionValueLabel.text = "mu " + _target.GetDynamicFrictionCoefficient().ToString("0.00");
+        }
+    }
+
+    private void RefreshDrawingReadouts()
+    {
+        if (_drawingTarget == null)
+        {
+            return;
+        }
+
+        if (_drawingSpringStiffnessValueLabel != null)
+        {
+            _drawingSpringStiffnessValueLabel.text = FormatDrawingNumber(
+                SandboxStrokePlaceablePhysicsApplier.ResolveSpringStrength(_drawingTarget.SpringStiffness),
+                "N/m");
+        }
+
+        if (_drawingHingeTorqueValueLabel != null)
+        {
+            _drawingHingeTorqueValueLabel.text = FormatDrawingNumber(
+                SandboxStrokePlaceablePhysicsApplier.ResolveHingeTorqueEstimate(_drawingTarget.HingeTorque),
+                "N·m");
+        }
+
+        if (_drawingImpulseForceValueLabel != null)
+        {
+            _drawingImpulseForceValueLabel.text = FormatDrawingNumber(
+                SandboxStrokePlaceablePhysicsApplier.ResolveImpulseStrength(
+                    _drawingTarget.ImpulseForce,
+                    _drawingTarget.ImpulseInstant),
+                _drawingTarget.ImpulseInstant ? "N·s" : "N");
+        }
+    }
+
+    private static string FormatDrawingNumber(float value, string unit)
+    {
+        var abs = Mathf.Abs(value);
+        var number = abs >= 100f
+            ? value.ToString("0")
+            : abs >= 10f
+                ? value.ToString("0.0")
+                : value.ToString("0.00");
+        return number + " " + unit;
+    }
+
     private void OnDrawingSpringStiffnessChanged(float value)
     {
         if (_suppressCallbacks || _drawingTarget == null)
@@ -408,6 +653,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         _drawingTarget.SetSpringStiffness(value);
+        RefreshDrawingReadouts();
     }
 
     private void OnDrawingHingeTorqueChanged(float value)
@@ -418,6 +664,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         _drawingTarget.SetHingeTorque(value);
+        RefreshDrawingReadouts();
     }
 
     private void OnDrawingImpulseForceChanged(float value)
@@ -428,6 +675,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         _drawingTarget.SetImpulseForce(value);
+        RefreshDrawingReadouts();
     }
 
     private void OnDrawingImpulseInstantChanged(bool instant)
@@ -438,6 +686,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         _drawingTarget.SetImpulseInstant(instant);
+        RefreshDrawingReadouts();
     }
 
     private void OnDrawingDeleteClicked()
@@ -463,6 +712,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _drawingHingeTorqueSlider.SetValueWithoutNotify(_drawingTarget.HingeTorque);
         _drawingImpulseForceSlider.SetValueWithoutNotify(_drawingTarget.ImpulseForce);
         _drawingImpulseInstantToggle.SetIsOnWithoutNotify(_drawingTarget.ImpulseInstant);
+        RefreshDrawingReadouts();
         _suppressCallbacks = false;
 
         switch (_drawingTarget.PhysicsIntent)
@@ -494,9 +744,9 @@ public class PlaceableInspectorPanel : MonoBehaviour
     {
         HideAllDrawingControlRows();
 
-        const float rowH = 22f;
-        const float gap = 6f;
-        var y = -44f;
+        const float rowH = 24f;
+        const float gap = 7f;
+        var y = -56f;
 
         for (var i = 0; i < rows.Length; i++)
         {
@@ -576,9 +826,11 @@ public class PlaceableInspectorPanel : MonoBehaviour
         rt.offsetMax = new Vector2(anchorMaxX > 0.99f ? 0f : -pad, 0f);
 
         var img = go.AddComponent<Image>();
-        img.color = new Color(0.22f, 0.38f, 0.62f, 1f);
+        img.color = ChipBackground;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(img);
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
+        ApplyButtonColors(btn, img, PanelAccent);
         btn.onClick.AddListener(onClick);
         var tx = CreateText(go.transform, "T", caption, 13, TextAnchor.MiddleCenter);
         var trt = tx.GetComponent<RectTransform>();
@@ -591,6 +843,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private static Text CreateLabel(Transform parent, string name, string text, int fontSize, ref float y, float height)
     {
         var t = CreateText(parent, name, text, fontSize, TextAnchor.UpperLeft);
+        t.color = fontSize >= 16 ? TextPrimary : TextSecondary;
         var rt = t.GetComponent<RectTransform>();
         rt.anchorMin = new Vector2(0f, 1f);
         rt.anchorMax = new Vector2(1f, 1f);
@@ -604,7 +857,34 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private Slider CreateLabeledSlider(Transform parent, string label, ref float y, float rowH, float gap, UnityEngine.Events.UnityAction<float> onChanged)
     {
         GameObject unusedRow;
-        return CreateLabeledSlider(parent, label, ref y, rowH, gap, onChanged, out unusedRow);
+        Text unusedValue;
+        return CreateLabeledSlider(parent, label, ref y, rowH, gap, onChanged, out unusedRow, false, out unusedValue);
+    }
+
+    private Slider CreateLabeledSliderWithValue(
+        Transform parent,
+        string label,
+        ref float y,
+        float rowH,
+        float gap,
+        UnityEngine.Events.UnityAction<float> onChanged,
+        out Text valueText)
+    {
+        GameObject unusedRow;
+        return CreateLabeledSlider(parent, label, ref y, rowH, gap, onChanged, out unusedRow, true, out valueText);
+    }
+
+    private Slider CreateLabeledSliderWithValue(
+        Transform parent,
+        string label,
+        ref float y,
+        float rowH,
+        float gap,
+        UnityEngine.Events.UnityAction<float> onChanged,
+        out GameObject row,
+        out Text valueText)
+    {
+        return CreateLabeledSlider(parent, label, ref y, rowH, gap, onChanged, out row, true, out valueText);
     }
 
     private Slider CreateLabeledSlider(
@@ -616,6 +896,22 @@ public class PlaceableInspectorPanel : MonoBehaviour
         UnityEngine.Events.UnityAction<float> onChanged,
         out GameObject row)
     {
+        Text unusedValue;
+        return CreateLabeledSlider(parent, label, ref y, rowH, gap, onChanged, out row, false, out unusedValue);
+    }
+
+    private Slider CreateLabeledSlider(
+        Transform parent,
+        string label,
+        ref float y,
+        float rowH,
+        float gap,
+        UnityEngine.Events.UnityAction<float> onChanged,
+        out GameObject row,
+        bool includeValue,
+        out Text valueText)
+    {
+        valueText = null;
         row = new GameObject(label + "Row");
         row.transform.SetParent(parent, false);
         var rowRt = row.AddComponent<RectTransform>();
@@ -626,17 +922,30 @@ public class PlaceableInspectorPanel : MonoBehaviour
         rowRt.sizeDelta = new Vector2(-20f, rowH);
 
         var lt = CreateText(row.transform, "L", label, 12, TextAnchor.MiddleLeft);
+        lt.color = TextSecondary;
         var lrt = lt.GetComponent<RectTransform>();
         lrt.anchorMin = new Vector2(0f, 0f);
-        lrt.anchorMax = new Vector2(0.38f, 1f);
+        lrt.anchorMax = new Vector2(includeValue ? 0.28f : 0.38f, 1f);
         lrt.offsetMin = Vector2.zero;
         lrt.offsetMax = Vector2.zero;
+
+        if (includeValue)
+        {
+            valueText = CreateText(row.transform, "Value", "", 12, TextAnchor.MiddleRight);
+            valueText.color = TextPrimary;
+            valueText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            var vrt = valueText.GetComponent<RectTransform>();
+            vrt.anchorMin = new Vector2(0.76f, 0f);
+            vrt.anchorMax = new Vector2(1f, 1f);
+            vrt.offsetMin = Vector2.zero;
+            vrt.offsetMax = Vector2.zero;
+        }
 
         var sliderGo = new GameObject("Slider");
         sliderGo.transform.SetParent(row.transform, false);
         var srt = sliderGo.AddComponent<RectTransform>();
-        srt.anchorMin = new Vector2(0.4f, 0.5f);
-        srt.anchorMax = new Vector2(1f, 0.5f);
+        srt.anchorMin = new Vector2(includeValue ? 0.31f : 0.4f, 0.5f);
+        srt.anchorMax = new Vector2(includeValue ? 0.73f : 1f, 0.5f);
         srt.pivot = new Vector2(0.5f, 0.5f);
         srt.anchoredPosition = Vector2.zero;
         srt.sizeDelta = new Vector2(0f, 12f);
@@ -649,7 +958,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
         bgRt.offsetMin = Vector2.zero;
         bgRt.offsetMax = Vector2.zero;
         var bgIm = bg.AddComponent<Image>();
-        bgIm.color = new Color(0.2f, 0.2f, 0.22f, 1f);
+        bgIm.color = TrackBackground;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(bgIm);
 
         var fillArea = new GameObject("Fill Area");
         fillArea.transform.SetParent(sliderGo.transform, false);
@@ -667,7 +977,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
         fRt.offsetMin = Vector2.zero;
         fRt.offsetMax = Vector2.zero;
         var fIm = fill.AddComponent<Image>();
-        fIm.color = new Color(0.35f, 0.65f, 1f, 1f);
+        fIm.color = PanelAccent;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(fIm);
 
         var handleArea = new GameObject("Handle Slide Area");
         handleArea.transform.SetParent(sliderGo.transform, false);
@@ -682,7 +993,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
         var hRt = handle.AddComponent<RectTransform>();
         hRt.sizeDelta = new Vector2(14f, 18f);
         var hIm = handle.AddComponent<Image>();
-        hIm.color = Color.white;
+        hIm.color = TextPrimary;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(hIm);
 
         var slider = sliderGo.AddComponent<Slider>();
         slider.fillRect = fRt;
@@ -729,6 +1041,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         rowRt.sizeDelta = new Vector2(-20f, rowH);
 
         var labelText = CreateText(row.transform, label, label, 14, TextAnchor.MiddleLeft);
+        labelText.color = TextSecondary;
         var labelTextRt = labelText.GetComponent<RectTransform>();
         labelTextRt.anchorMin = new Vector2(0f, 0f);
         labelTextRt.anchorMax = new Vector2(0.55f, 1f);
@@ -743,7 +1056,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
         toggleRt.sizeDelta = new Vector2(28f, 28f);
         toggleRt.anchoredPosition = Vector2.zero;
         var toggleBg = toggleGo.AddComponent<Image>();
-        toggleBg.color = new Color(0.25f, 0.25f, 0.28f, 1f);
+        toggleBg.color = TrackBackground;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(toggleBg);
         var toggle = toggleGo.AddComponent<Toggle>();
         toggle.targetGraphic = toggleBg;
         toggle.graphic = CreateToggleGraphic(toggleGo.transform);
@@ -764,9 +1078,11 @@ public class PlaceableInspectorPanel : MonoBehaviour
         rt.anchoredPosition = new Vector2(0f, y);
         rt.sizeDelta = new Vector2(-20f, height);
         var img = go.AddComponent<Image>();
-        img.color = new Color(0.55f, 0.18f, 0.18f, 1f);
+        img.color = DangerColor;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(img);
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
+        ApplyButtonColors(btn, img, DangerColor);
         btn.onClick.AddListener(onClick);
         var tx = CreateText(go.transform, "T", caption, 14, TextAnchor.MiddleCenter);
         var trt = tx.GetComponent<RectTransform>();
@@ -786,10 +1102,12 @@ public class PlaceableInspectorPanel : MonoBehaviour
         t.font = MrBlueprintUiFont.GetDefault();
         t.text = value;
         t.fontSize = fontSize;
-        t.color = Color.white;
+        t.color = TextPrimary;
         t.alignment = alignment;
-        t.horizontalOverflow = HorizontalWrapMode.Overflow;
-        t.verticalOverflow = VerticalWrapMode.Overflow;
+        t.horizontalOverflow = HorizontalWrapMode.Wrap;
+        t.verticalOverflow = VerticalWrapMode.Truncate;
+        t.raycastTarget = false;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(t);
         return t;
     }
 
@@ -803,7 +1121,38 @@ public class PlaceableInspectorPanel : MonoBehaviour
         rt.offsetMin = new Vector2(4f, 4f);
         rt.offsetMax = new Vector2(-4f, -4f);
         var im = go.AddComponent<Image>();
-        im.color = new Color(0.3f, 0.85f, 0.45f, 1f);
+        im.color = PanelAccent;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(im);
         return im;
+    }
+
+    private static void CreateAccentRule(Transform parent, float y, float width)
+    {
+        var go = new GameObject("AccentRule");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 1f);
+        rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(0f, y);
+        rt.sizeDelta = new Vector2(width, 3f);
+        var image = go.AddComponent<Image>();
+        image.color = PanelAccent;
+        image.raycastTarget = false;
+        PhysicsLensRenderUtility.ApplyUiPerspectiveOverlayMaterial(image);
+    }
+
+    private static void ApplyButtonColors(Button button, Graphic targetGraphic, Color accent)
+    {
+        if (button == null)
+            return;
+
+        var colors = button.colors;
+        colors.normalColor = targetGraphic != null ? targetGraphic.color : ChipBackground;
+        colors.highlightedColor = Color.Lerp(colors.normalColor, accent, 0.42f);
+        colors.pressedColor = Color.Lerp(colors.normalColor, accent, 0.7f);
+        colors.selectedColor = colors.highlightedColor;
+        colors.fadeDuration = 0.08f;
+        button.colors = colors;
     }
 }

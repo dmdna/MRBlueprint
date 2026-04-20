@@ -3,6 +3,11 @@ using UnityEngine.UI;
 
 public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
 {
+    private const float TopLabelCenterInset = 13f;
+    private const float BottomLabelCenterInset = 15f;
+    private const float PlotHorizontalInset = 28f;
+    private const float PlotVerticalInset = 39f;
+
     private PhysicsLensConfig _config;
     private RectTransform _root;
     private PhysicsLensGraphMode _mode = PhysicsLensGraphMode.SpringPhaseRibbon;
@@ -54,6 +59,7 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
         _graphSize = size;
         if (_root != null)
             _root.sizeDelta = size;
+        RepositionLabels();
         RefreshAxes();
     }
 
@@ -153,6 +159,7 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
             secondary, new Vector2(145f, -90f), new Vector2(160f, 22f));
         _scaleLabel = PhysicsLensRenderUtility.CreateText(transform, "PhaseScaleLabel", font, 14, TextAnchor.UpperRight,
             secondary, new Vector2(150f, 78f), new Vector2(140f, 22f));
+        RepositionLabels();
         RefreshLabels();
     }
 
@@ -179,6 +186,17 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
 
         if (_zLabel != null)
             _zLabel.text = "time";
+    }
+
+    private void RepositionLabels()
+    {
+        var halfWidth = _graphSize.x * 0.5f;
+        var halfHeight = _graphSize.y * 0.5f;
+        SetLabelRect(_modeLabel, new Vector2(-halfWidth + 18f, halfHeight - TopLabelCenterInset), new Vector2(220f, 22f), new Vector2(0f, 0.5f));
+        SetLabelRect(_scaleLabel, new Vector2(halfWidth - 16f, halfHeight - TopLabelCenterInset), new Vector2(128f, 22f), new Vector2(1f, 0.5f));
+        SetLabelRect(_yLabel, new Vector2(-halfWidth + 18f, halfHeight - 39f), new Vector2(170f, 20f), new Vector2(0f, 0.5f));
+        SetLabelRect(_xLabel, new Vector2(-halfWidth + 18f, -halfHeight + BottomLabelCenterInset), new Vector2(130f, 20f), new Vector2(0f, 0.5f));
+        SetLabelRect(_zLabel, new Vector2(halfWidth - 16f, -halfHeight + BottomLabelCenterInset), new Vector2(120f, 20f), new Vector2(1f, 0.5f));
     }
 
     private void CreateMeshObject(string name, Material material, out Mesh mesh)
@@ -280,8 +298,8 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
 
     private void AddLimitPlane(int quadIndex, float angle, Color color)
     {
-        var halfWidth = _graphSize.x * 0.5f - 24f;
-        var halfHeight = _graphSize.y * 0.5f - 28f;
+        var halfWidth = _graphSize.x * 0.5f - PlotHorizontalInset;
+        var halfHeight = _graphSize.y * 0.5f - PlotVerticalInset;
         var depth = _config != null ? _config.PhaseDepth : 72f;
         var x = Mathf.Clamp(angle / Mathf.Max(0.001f, _smoothXRange), -1f, 1f) * halfWidth;
         var zOld = depth * 0.5f;
@@ -313,8 +331,8 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
 
     private Vector3 SampleToPoint(PhysicsLensSample sample, float oldestTime, float history)
     {
-        var halfWidth = _graphSize.x * 0.5f - 24f;
-        var halfHeight = _graphSize.y * 0.5f - 28f;
+        var halfWidth = _graphSize.x * 0.5f - PlotHorizontalInset;
+        var halfHeight = _graphSize.y * 0.5f - PlotVerticalInset;
         var depth = _config != null ? _config.PhaseDepth : 72f;
         var x = Mathf.Clamp(ResolveX(sample) / Mathf.Max(0.001f, _smoothXRange), -1f, 1f) * halfWidth;
         var y = Mathf.Clamp(ResolveY(sample) / Mathf.Max(0.001f, _smoothYRange), -1f, 1f) * halfHeight;
@@ -360,8 +378,8 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
         ClearArrays(_axisVertices, _axisColors);
         var color = _config != null ? _config.GraphGrid : new Color(1f, 1f, 1f, 0.4f);
         var accent = _config != null ? _config.PanelAccent : Color.cyan;
-        var halfWidth = _graphSize.x * 0.5f - 24f;
-        var halfHeight = _graphSize.y * 0.5f - 28f;
+        var halfWidth = _graphSize.x * 0.5f - PlotHorizontalInset;
+        var halfHeight = _graphSize.y * 0.5f - PlotVerticalInset;
         var depth = _config != null ? _config.PhaseDepth : 72f;
         var index = 0;
 
@@ -444,5 +462,18 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
             vertices[i] = Vector3.zero;
             colors[i] = clear;
         }
+    }
+
+    private static void SetLabelRect(Text text, Vector2 anchoredPosition, Vector2 size, Vector2 pivot)
+    {
+        if (text == null)
+            return;
+
+        var rect = text.rectTransform;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = pivot;
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = size;
     }
 }

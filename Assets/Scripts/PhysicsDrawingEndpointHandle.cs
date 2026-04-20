@@ -766,7 +766,7 @@ public sealed class PhysicsDrawingEndpointHandle : MonoBehaviour
     private bool IsAttachedEndpoint()
     {
         return owner != null
-               && owner.TryGetSpringEndpointAttachment(endpoint, out _, out _);
+               && owner.TryGetEndpointAttachment(endpoint, out _, out _);
     }
 
     private static void MarkAnyInteraction()

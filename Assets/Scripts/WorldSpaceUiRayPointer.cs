@@ -72,20 +72,79 @@ public static class WorldSpaceUiRayPointer
                 continue;
             }
 
-            bestDistance = distance;
+            var result = UiRaycastResults[0];
+            ResolvePointerRayHitPoint(ray, origin, direction, distance, result, out var hitPoint, out var hitDistance);
+            result.worldPosition = hitPoint;
+            result.distance = hitDistance;
+            result.screenPosition = screenPoint;
+            if (hitDistance > bestDistance + 0.0001f)
+            {
+                continue;
+            }
+
+            if (hasHit
+                && Mathf.Abs(hitDistance - bestDistance) <= 0.0001f
+                && uiHit.Canvas != null
+                && canvas.sortingOrder <= uiHit.Canvas.sortingOrder)
+            {
+                continue;
+            }
+
+            bestDistance = hitDistance;
             hasHit = true;
             uiHit = new Hit
             {
-                Target = UiRaycastResults[0].gameObject,
+                Target = result.gameObject,
                 Canvas = canvas,
-                WorldPoint = worldPoint,
+                WorldPoint = hitPoint,
                 ScreenPosition = screenPoint,
-                Distance = distance,
-                RaycastResult = UiRaycastResults[0]
+                Distance = hitDistance,
+                RaycastResult = result
             };
         }
 
         return hasHit;
+    }
+
+    private static void ResolvePointerRayHitPoint(
+        Ray ray,
+        Vector3 origin,
+        Vector3 direction,
+        float fallbackDistance,
+        RaycastResult result,
+        out Vector3 point,
+        out float distance)
+    {
+        distance = Mathf.Max(0f, fallbackDistance);
+        point = ray.GetPoint(distance);
+
+        var candidate = result.worldPosition;
+        if (!IsFinite(candidate))
+        {
+            return;
+        }
+
+        var projectedDistance = Vector3.Dot(candidate - origin, direction);
+        if (projectedDistance <= 0f)
+        {
+            return;
+        }
+
+        var projectedPoint = ray.GetPoint(projectedDistance);
+        if (!IsFinite(projectedPoint))
+        {
+            return;
+        }
+
+        distance = projectedDistance;
+        point = projectedPoint;
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return float.IsFinite(value.x)
+               && float.IsFinite(value.y)
+               && float.IsFinite(value.z);
     }
 
     public static bool Handle(
