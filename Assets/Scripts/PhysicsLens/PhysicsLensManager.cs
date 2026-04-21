@@ -23,18 +23,24 @@ public sealed class PhysicsLensManager : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void BootstrapInSandboxScene()
     {
-        if (UnityEngine.Object.FindFirstObjectByType<PhysicsLensManager>() != null)
-            return;
+        EnsureRuntimeManager();
+    }
+
+    public static PhysicsLensManager EnsureRuntimeManager()
+    {
+        var existing = UnityEngine.Object.FindFirstObjectByType<PhysicsLensManager>();
+        if (existing != null)
+            return existing;
 
         if (UnityEngine.Object.FindFirstObjectByType<SandboxSimulationController>() == null
             && UnityEngine.Object.FindFirstObjectByType<SandboxEditorToolbarFrame>() == null
             && UnityEngine.Object.FindFirstObjectByType<AssetSelectionManager>() == null)
         {
-            return;
+            return null;
         }
 
         var go = new GameObject("PhysicsLensManager");
-        go.AddComponent<PhysicsLensManager>();
+        return go.AddComponent<PhysicsLensManager>();
     }
 
     private void Awake()

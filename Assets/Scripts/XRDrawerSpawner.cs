@@ -60,6 +60,7 @@ public class XRDrawerSpawner : MonoBehaviour
         var spawnPos = ResolveSpawnPosition();
         var instance = Instantiate(drawerItem.SpawnPrefab, spawnPos, Quaternion.identity);
         instance.SetActive(true);
+        EnsureTelemetryFeatures(instance);
 
         if (spawnSoundClip != null)
             AudioSource.PlayClipAtPoint(spawnSoundClip, spawnPos, spawnSoundVolume);
@@ -77,6 +78,33 @@ public class XRDrawerSpawner : MonoBehaviour
         if (AssetSelectionManager.Instance != null)
         {
             AssetSelectionManager.Instance.ClearSelection();
+        }
+    }
+
+    private static void EnsureTelemetryFeatures(GameObject instance)
+    {
+        if (instance == null)
+        {
+            return;
+        }
+
+        PhysicsLensManager.EnsureRuntimeManager();
+        SimulationVisualizationInstaller.EnsureRuntimeManager();
+
+        var rigidbodies = instance.GetComponentsInChildren<Rigidbody>(true);
+        for (var i = 0; i < rigidbodies.Length; i++)
+        {
+            var rb = rigidbodies[i];
+            if (rb == null)
+            {
+                continue;
+            }
+
+            CollisionEventCache.GetOrAdd(rb);
+            if (rb.GetComponent<PhysicsLensForceEventCache>() == null)
+            {
+                rb.gameObject.AddComponent<PhysicsLensForceEventCache>();
+            }
         }
     }
 

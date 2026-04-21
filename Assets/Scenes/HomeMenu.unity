@@ -1580,6 +1580,13 @@ MonoBehaviour:
   menuWorldScale: 0.0015
   menuCanvasSize: {x: 900, y: 620}
   trackedPlacementFrames: 12
+  logo3dObjectName: logo
+  logoCanvasAnchor: {x: 0.5, y: 0.62}
+  logoCanvasAnchoredPosition: {x: 0, y: 0}
+  logo3dTargetHeight: 220
+  logo3dCanvasDepth: 20
+  startButtonAnchoredPosition: {x: 0, y: -112}
+  creditsButtonAnchoredPosition: {x: 0, y: -192}
   menuAmbientClip: {fileID: 8300000, guid: 565b986a456d01e48a4c6ce7c80398da, type: 3}
   menuAmbientVolume: 0.12
 --- !u!114 &710001003
@@ -1735,7 +1742,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54482e6e8c94be14fa4989c4e4958170, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FloatUpDown
-  amplitude: 0.05
+  amplitude: 0.012
   speed: 2
 --- !u!1 &906174003
 GameObject:

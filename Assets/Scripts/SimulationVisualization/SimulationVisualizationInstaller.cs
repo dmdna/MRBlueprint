@@ -5,17 +5,23 @@ public static class SimulationVisualizationInstaller
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void BootstrapInSandboxScene()
     {
-        if (Object.FindFirstObjectByType<SimulationVisualizationManager>() != null)
-            return;
+        EnsureRuntimeManager();
+    }
+
+    public static SimulationVisualizationManager EnsureRuntimeManager()
+    {
+        var existing = Object.FindFirstObjectByType<SimulationVisualizationManager>();
+        if (existing != null)
+            return existing;
 
         if (Object.FindFirstObjectByType<SandboxSimulationController>() == null
             && Object.FindFirstObjectByType<SandboxEditorToolbarFrame>() == null
             && Object.FindFirstObjectByType<AssetSelectionManager>() == null)
         {
-            return;
+            return null;
         }
 
         var go = new GameObject("SimulationVisualizationManager");
-        go.AddComponent<SimulationVisualizationManager>();
+        return go.AddComponent<SimulationVisualizationManager>();
     }
 }
