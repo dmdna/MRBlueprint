@@ -121,10 +121,9 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
             return false;
         }
 
-        var panelSize = CurrentPanelSize;
-        var gap = _config != null ? _config.SettingsDockGap : 14f;
-        var localX = panelSize.x * 0.5f + settingsSize.x * 0.5f + gap;
-        position = transform.TransformPoint(new Vector3(localX, 0f, 0f));
+        var lensLocal = _config != null ? _config.ViewSpawnLensLocalPosition : new Vector3(-0.34f, -0.32f, 1.1f);
+        var settingsLocal = _config != null ? _config.ViewSpawnSettingsLocalPosition : new Vector3(0.35f, -0.32f, 1.1f);
+        position = transform.position + transform.rotation * (settingsLocal - lensLocal);
         rotation = transform.rotation;
         worldScale = CanvasWorldScale;
         return true;
@@ -171,28 +170,51 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
             _phase.Render(tracker, tracker.Constraint);
     }
 
-    public void UpdatePinnedPose(Camera camera, Vector3 centerOfMass)
+    public void SpawnFromPlayerView(Camera camera, Vector3 centerOfMass)
     {
         if (camera == null || _config == null)
             return;
 
         SetCamera(camera);
 
-        var targetPosition = camera.transform.TransformPoint(_config.ViewPinnedLocalPosition);
-        var targetRotation = camera.transform.rotation * Quaternion.Euler(_config.ViewPinnedLocalEuler);
+        var targetRotation = ResolveUprightViewRotation(camera.transform);
+        var targetPosition = camera.transform.position + targetRotation * _config.ViewSpawnLensLocalPosition;
         transform.SetPositionAndRotation(targetPosition, targetRotation);
         transform.localScale = Vector3.one * _config.CanvasWorldScale;
+        UpdateLeader(centerOfMass);
+    }
 
+    public void UpdateLeader(Vector3 centerOfMass)
+    {
         if (_leader != null)
         {
             _leader.enabled = _canvasGroup == null || _canvasGroup.alpha > 0.01f;
             _leader.SetPosition(0, centerOfMass);
-            _leader.SetPosition(1, targetPosition);
+            _leader.SetPosition(1, transform.position);
             var color = _config.PanelAccent;
             color.a = (_canvasGroup != null ? _canvasGroup.alpha : 1f) * 0.72f;
             _leader.startColor = color;
             _leader.endColor = new Color(color.r, color.g, color.b, color.a * 0.35f);
         }
+    }
+
+    private static Quaternion ResolveUprightViewRotation(Transform view)
+    {
+        if (view == null)
+            return Quaternion.identity;
+
+        var forward = Vector3.ProjectOnPlane(view.forward, Vector3.up);
+        if (forward.sqrMagnitude <= 0.0001f)
+        {
+            forward = Vector3.ProjectOnPlane(view.up, Vector3.up);
+        }
+
+        if (forward.sqrMagnitude <= 0.0001f)
+        {
+            forward = Vector3.forward;
+        }
+
+        return Quaternion.LookRotation(forward.normalized, Vector3.up);
     }
 
     private void LateUpdate()

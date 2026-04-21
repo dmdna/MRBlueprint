@@ -25,7 +25,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
 
     [Header("Placeable and UI Pointer")]
     [SerializeField] private bool _enableWorldUiPointer = true;
-    [SerializeField] private string _uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas;HomeMenuCanvas";
+    [SerializeField] private string _uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas;HomeMenuCanvas;PhysicsLensWorldPanel";
     [SerializeField] private float _uiRayDistance = 8f;
     [SerializeField] private float _placeableRayDistance = 8f;
     [SerializeField] private LayerMask _placeableRaycastMask = ~0;
@@ -978,6 +978,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
     private void EnsureHomeMenuCanvasFilter()
     {
         _uiCanvasName = IncludeCanvasName(_uiCanvasName, "HomeMenuCanvas");
+        _uiCanvasName = IncludeCanvasName(_uiCanvasName, "PhysicsLensWorldPanel");
     }
 
     private static string IncludeCanvasName(string canvasNames, string requiredCanvasName)
