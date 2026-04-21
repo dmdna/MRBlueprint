@@ -17,6 +17,15 @@ public class HomeMenuController : MonoBehaviour
     [SerializeField] private Vector2 menuCanvasSize = new Vector2(900f, 620f);
     [SerializeField] private int trackedPlacementFrames = 12;
 
+    [Header("Logo")]
+    [SerializeField] private string logo3dObjectName = "logo";
+    [SerializeField] private Vector2 logoCanvasAnchor = new Vector2(0.5f, 0.62f);
+    [SerializeField] private Vector2 logoCanvasAnchoredPosition = Vector2.zero;
+    [SerializeField] private float logo3dTargetHeight = 220f;
+    [SerializeField] private float logo3dCanvasDepth = 20f;
+    [SerializeField] private Vector2 startButtonAnchoredPosition = new Vector2(0f, -112f);
+    [SerializeField] private Vector2 creditsButtonAnchoredPosition = new Vector2(0f, -192f);
+
     [Header("Background (HomeMenu scene only)")]
     [SerializeField] private AudioClip menuAmbientClip;
     [SerializeField, Range(0f, 1f)] private float menuAmbientVolume = 0.1f;
@@ -24,6 +33,7 @@ public class HomeMenuController : MonoBehaviour
     private GameObject _creditsRoot;
     private Canvas _canvas;
     private RectTransform _canvasRect;
+    private Transform _logo3dRoot;
     private int _pendingPlacementFrames;
 
     private void Awake()
@@ -116,49 +126,160 @@ public class HomeMenuController : MonoBehaviour
 
         var font = MrBlueprintUiFont.GetDefault();
 
-        var logoTex = TryLoadLogoTexture();
-        if (logoTex != null)
-        {
-            var logoGo = new GameObject("Logo");
-            logoGo.transform.SetParent(canvasGo.transform, false);
-            var logoRt = logoGo.AddComponent<RectTransform>();
-            logoRt.anchorMin = new Vector2(0.5f, 0.62f);
-            logoRt.anchorMax = new Vector2(0.5f, 0.62f);
-            logoRt.pivot = new Vector2(0.5f, 0.5f);
-            logoRt.anchoredPosition = Vector2.zero;
-            var ar = (float)logoTex.width / Mathf.Max(1, logoTex.height);
-            const float targetHeight = 220f;
-            logoRt.sizeDelta = new Vector2(targetHeight * ar, targetHeight);
-            var raw = logoGo.AddComponent<RawImage>();
-            raw.texture = logoTex;
-            raw.raycastTarget = false;
-        }
-        else
-        {
-            var titleGo = new GameObject("TitleFallback");
-            titleGo.transform.SetParent(canvasGo.transform, false);
-            var title = titleGo.AddComponent<Text>();
-            title.font = font;
-            title.fontSize = 48;
-            title.fontStyle = FontStyle.Bold;
-            title.color = Color.white;
-            title.text = "MR Blueprint";
-            title.alignment = TextAnchor.MiddleCenter;
-            var titleRt = titleGo.AddComponent<RectTransform>();
-            titleRt.anchorMin = new Vector2(0.5f, 0.58f);
-            titleRt.anchorMax = new Vector2(0.5f, 0.58f);
-            titleRt.pivot = new Vector2(0.5f, 0.5f);
-            titleRt.anchoredPosition = Vector2.zero;
-            titleRt.sizeDelta = new Vector2(900f, 120f);
-            Debug.LogWarning(
-                "HomeMenuController: Could not load MRBlueprint_Logo (Assets/UI/MRBlueprint_Logo.png or Resources/UI/MRBlueprint_Logo). Using text title.");
-        }
+        if (!TryPlaceLogo3d(canvasGo.transform))
+            BuildTitleFallback(canvasGo.transform, font);
 
-        CreateButton(canvasGo.transform, font, "Start", new Vector2(0f, -40f), new Vector2(280f, 52f), LoadEditor);
-        CreateButton(canvasGo.transform, font, "Credits", new Vector2(0f, -120f), new Vector2(200f, 40f), ShowCredits);
+        CreateButton(canvasGo.transform, font, "Start", startButtonAnchoredPosition, new Vector2(280f, 52f), LoadEditor);
+        CreateButton(canvasGo.transform, font, "Credits", creditsButtonAnchoredPosition, new Vector2(200f, 40f), ShowCredits);
 
         _creditsRoot = BuildCreditsPanel(canvasGo.transform, font);
         _creditsRoot.SetActive(false);
+    }
+
+    private bool TryPlaceLogo3d(Transform canvasTransform)
+    {
+        var logo = ResolveLogo3dRoot();
+        if (logo == null)
+        {
+            Debug.LogWarning(
+                $"HomeMenuController: Could not find a 3D logo object named '{logo3dObjectName}'. Using text title.");
+            return false;
+        }
+
+        _logo3dRoot = logo;
+        _logo3dRoot.gameObject.SetActive(true);
+        if (_logo3dRoot.parent != canvasTransform)
+            _logo3dRoot.SetParent(canvasTransform, true);
+
+        LayoutLogo3d();
+        return true;
+    }
+
+    private Transform ResolveLogo3dRoot()
+    {
+        if (_logo3dRoot != null)
+            return _logo3dRoot;
+
+        if (string.IsNullOrWhiteSpace(logo3dObjectName))
+            return null;
+
+        var transforms = Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var candidate in transforms)
+        {
+            if (candidate == null
+                || !string.Equals(candidate.name, logo3dObjectName, System.StringComparison.OrdinalIgnoreCase)
+                || candidate.GetComponentInChildren<Renderer>(true) == null)
+            {
+                continue;
+            }
+
+            return candidate;
+        }
+
+        return null;
+    }
+
+    private void LayoutLogo3d()
+    {
+        if (_logo3dRoot == null || _canvasRect == null)
+            return;
+
+        var target = GetLogoCanvasLocalPosition();
+        _logo3dRoot.localPosition = target;
+
+        if (logo3dTargetHeight > 0f
+            && TryGetLogoCanvasBounds(out var bounds)
+            && bounds.size.y > 0.001f)
+        {
+            var scaleFactor = logo3dTargetHeight / bounds.size.y;
+            _logo3dRoot.localScale *= scaleFactor;
+        }
+
+        if (TryGetLogoCanvasBounds(out var centeredBounds))
+            _logo3dRoot.localPosition += target - centeredBounds.center;
+    }
+
+    private Vector3 GetLogoCanvasLocalPosition()
+    {
+        var size = _canvasRect != null ? _canvasRect.rect.size : menuCanvasSize;
+        if (size.x <= 0.001f || size.y <= 0.001f)
+            size = menuCanvasSize;
+
+        var pivot = _canvasRect != null ? _canvasRect.pivot : new Vector2(0.5f, 0.5f);
+        return new Vector3(
+            (logoCanvasAnchor.x - pivot.x) * size.x + logoCanvasAnchoredPosition.x,
+            (logoCanvasAnchor.y - pivot.y) * size.y + logoCanvasAnchoredPosition.y,
+            logo3dCanvasDepth);
+    }
+
+    private bool TryGetLogoCanvasBounds(out Bounds bounds)
+    {
+        bounds = default;
+        if (_logo3dRoot == null || _canvasRect == null)
+            return false;
+
+        var renderers = _logo3dRoot.GetComponentsInChildren<Renderer>(true);
+        var hasBounds = false;
+        foreach (var logoRenderer in renderers)
+        {
+            if (logoRenderer == null)
+                continue;
+
+            var localBounds = logoRenderer.localBounds;
+            var min = localBounds.min;
+            var max = localBounds.max;
+
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(min.x, min.y, min.z)),
+                ref bounds, ref hasBounds);
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(min.x, min.y, max.z)),
+                ref bounds, ref hasBounds);
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(min.x, max.y, min.z)),
+                ref bounds, ref hasBounds);
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(min.x, max.y, max.z)),
+                ref bounds, ref hasBounds);
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(max.x, min.y, min.z)),
+                ref bounds, ref hasBounds);
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(max.x, min.y, max.z)),
+                ref bounds, ref hasBounds);
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(max.x, max.y, min.z)),
+                ref bounds, ref hasBounds);
+            EncapsulateLogoBoundsCorner(logoRenderer.transform.TransformPoint(new Vector3(max.x, max.y, max.z)),
+                ref bounds, ref hasBounds);
+        }
+
+        return hasBounds;
+    }
+
+    private void EncapsulateLogoBoundsCorner(Vector3 worldPoint, ref Bounds bounds, ref bool hasBounds)
+    {
+        var canvasPoint = _canvasRect.InverseTransformPoint(worldPoint);
+        if (!hasBounds)
+        {
+            bounds = new Bounds(canvasPoint, Vector3.zero);
+            hasBounds = true;
+            return;
+        }
+
+        bounds.Encapsulate(canvasPoint);
+    }
+
+    private static void BuildTitleFallback(Transform canvas, Font font)
+    {
+        var titleGo = new GameObject("TitleFallback");
+        titleGo.transform.SetParent(canvas, false);
+        var title = titleGo.AddComponent<Text>();
+        title.font = font;
+        title.fontSize = 48;
+        title.fontStyle = FontStyle.Bold;
+        title.color = Color.white;
+        title.text = "MR Blueprint";
+        title.alignment = TextAnchor.MiddleCenter;
+        var titleRt = titleGo.AddComponent<RectTransform>();
+        titleRt.anchorMin = new Vector2(0.5f, 0.58f);
+        titleRt.anchorMax = new Vector2(0.5f, 0.58f);
+        titleRt.pivot = new Vector2(0.5f, 0.5f);
+        titleRt.anchoredPosition = Vector2.zero;
+        titleRt.sizeDelta = new Vector2(900f, 120f);
     }
 
     private void EnsureControllerRays()
@@ -223,16 +344,6 @@ public class HomeMenuController : MonoBehaviour
         }
 
         return main;
-    }
-
-    private static Texture2D TryLoadLogoTexture()
-    {
-#if UNITY_EDITOR
-        var path = "Assets/UI/MRBlueprint_Logo.png";
-        return UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-#else
-        return Resources.Load<Texture2D>("UI/MRBlueprint_Logo");
-#endif
     }
 
     private static void CreateButton(Transform parent, Font font, string label, Vector2 anchoredPos, Vector2 size,

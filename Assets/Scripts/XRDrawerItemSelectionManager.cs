@@ -11,6 +11,12 @@ public class XRDrawerItemSelectionManager : MonoBehaviour
     {
         if (item == null) return;
 
+        if (currentSelected == item)
+        {
+            currentSelected.Select(xrCamera);
+            return;
+        }
+
         if (currentSelected != null && currentSelected != item)
         {
             currentSelected.Deselect(xrCamera);

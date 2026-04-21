@@ -43,6 +43,8 @@ public static class PlaceableRuntimeFactory
         root.AddComponent<SelectableAsset>();
         root.AddComponent<XRGrabInteractable>();
         root.AddComponent<PlaceableXRGrabBridge>();
+        root.AddComponent<CollisionEventCache>();
+        root.AddComponent<PhysicsLensForceEventCache>();
         root.AddComponent<SpawnTemplateMarker>();
 
         root.SetActive(false);
