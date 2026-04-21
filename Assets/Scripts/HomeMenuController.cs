@@ -9,6 +9,8 @@ using UnityEngine.UI;
 /// </summary>
 public class HomeMenuController : MonoBehaviour
 {
+    private const string AmbientAudioObjectName = "MenuAmbientAudio";
+
     [SerializeField] private string editorSceneName = "MainScene";
     [SerializeField] private float menuDistance = 1.35f;
     [SerializeField] private float minimumMenuHeight = 1.35f;
@@ -26,6 +28,9 @@ public class HomeMenuController : MonoBehaviour
     [SerializeField] private Vector2 startButtonAnchoredPosition = new Vector2(0f, -112f);
     [SerializeField] private Vector2 creditsButtonAnchoredPosition = new Vector2(0f, -192f);
     [SerializeField] private Vector2 quitButtonAnchoredPosition = new Vector2(0f, -256f);
+
+    [Header("Credits")]
+    [SerializeField] private float creditsPanelCanvasDepth = -80f;
 
     [Header("Background (HomeMenu scene only)")]
     [SerializeField] private AudioClip menuAmbientClip;
@@ -45,7 +50,17 @@ public class HomeMenuController : MonoBehaviour
         BuildUi();
         _pendingPlacementFrames = Mathf.Max(1, trackedPlacementFrames);
         PositionMenuInFrontOfCamera();
-        StartAmbientIfConfigured();
+        EnsureAmbientPlaying();
+    }
+
+    private void OnEnable()
+    {
+        EnsureAmbientPlaying();
+    }
+
+    private void Start()
+    {
+        EnsureAmbientPlaying();
     }
 
     private AudioSource _ambientSource;
@@ -58,29 +73,82 @@ public class HomeMenuController : MonoBehaviour
         }
     }
 
-    private void StartAmbientIfConfigured()
+    private void EnsureAmbientSource()
     {
         if (menuAmbientClip == null)
             return;
 
-        var ambientGo = new GameObject("MenuAmbientAudio");
-        ambientGo.transform.SetParent(transform, false);
-        _ambientSource = ambientGo.AddComponent<AudioSource>();
+        if (menuAmbientClip.loadState == AudioDataLoadState.Unloaded)
+            menuAmbientClip.LoadAudioData();
+
+        if (_ambientSource == null)
+        {
+            var existing = transform.Find(AmbientAudioObjectName);
+            if (existing != null)
+                _ambientSource = existing.GetComponent<AudioSource>();
+
+            if (_ambientSource == null)
+            {
+                var ambientGo = existing != null ? existing.gameObject : new GameObject(AmbientAudioObjectName);
+                ambientGo.transform.SetParent(transform, false);
+                _ambientSource = ambientGo.AddComponent<AudioSource>();
+            }
+        }
+
         _ambientSource.clip = menuAmbientClip;
         _ambientSource.loop = true;
         _ambientSource.volume = menuAmbientVolume;
         _ambientSource.spatialBlend = 0f;
         _ambientSource.playOnAwake = false;
-        _ambientSource.Play();
+        _ambientSource.ignoreListenerPause = true;
+    }
+
+    private void EnsureAmbientPlaying()
+    {
+        EnsureAmbientSource();
+        if (_ambientSource == null || menuAmbientClip == null || menuAmbientClip.loadState == AudioDataLoadState.Failed)
+            return;
+
+        if (!_ambientSource.gameObject.activeSelf)
+            _ambientSource.gameObject.SetActive(true);
+
+        if (!_ambientSource.enabled)
+            _ambientSource.enabled = true;
+
+        if (_ambientSource.clip != menuAmbientClip)
+            _ambientSource.clip = menuAmbientClip;
+
+        _ambientSource.loop = true;
+        _ambientSource.volume = menuAmbientVolume;
+        _ambientSource.spatialBlend = 0f;
+        _ambientSource.playOnAwake = false;
+        _ambientSource.ignoreListenerPause = true;
+
+        if (!_ambientSource.isPlaying && menuAmbientClip.loadState != AudioDataLoadState.Loading)
+            _ambientSource.Play();
+    }
+
+    private void OnApplicationFocus(bool hasFocus)
+    {
+        if (hasFocus)
+            EnsureAmbientPlaying();
+    }
+
+    private void OnApplicationPause(bool pauseStatus)
+    {
+        if (!pauseStatus)
+            EnsureAmbientPlaying();
     }
 
     private void LateUpdate()
     {
-        if (_pendingPlacementFrames <= 0)
-            return;
+        if (_pendingPlacementFrames > 0)
+        {
+            PositionMenuInFrontOfCamera();
+            _pendingPlacementFrames--;
+        }
 
-        PositionMenuInFrontOfCamera();
-        _pendingPlacementFrames--;
+        EnsureAmbientPlaying();
     }
 
     private static void EnsureMainCamera()
@@ -391,6 +459,7 @@ public class HomeMenuController : MonoBehaviour
         rootRt.anchorMax = Vector2.one;
         rootRt.offsetMin = Vector2.zero;
         rootRt.offsetMax = Vector2.zero;
+        SetRectTransformDepth(rootRt, creditsPanelCanvasDepth);
 
         var box = new GameObject("Box");
         box.transform.SetParent(root.transform, false);
@@ -419,6 +488,16 @@ public class HomeMenuController : MonoBehaviour
         CreateButton(box.transform, font, "Back", new Vector2(0f, -100f), new Vector2(160f, 40f), HideCredits);
 
         return root;
+    }
+
+    private static void SetRectTransformDepth(RectTransform rect, float z)
+    {
+        if (rect == null)
+            return;
+
+        var anchoredPosition = rect.anchoredPosition3D;
+        anchoredPosition.z = z;
+        rect.anchoredPosition3D = anchoredPosition;
     }
 
     public void LoadEditor()
