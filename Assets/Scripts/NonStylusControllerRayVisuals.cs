@@ -34,7 +34,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
     [Header("UI Pointer")]
     [SerializeField] private bool enableWorldUiPointer = true;
-    [SerializeField] private string uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas;HomeMenuCanvas";
+    [SerializeField] private string uiCanvasName = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas;HomeMenuCanvas;PhysicsLensWorldPanel";
     [SerializeField] private float uiRayDistance = 8f;
 
     [Header("Fallback Line Style")]
@@ -1479,6 +1479,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private void EnsureHomeMenuCanvasFilter()
     {
         uiCanvasName = IncludeCanvasName(uiCanvasName, "HomeMenuCanvas");
+        uiCanvasName = IncludeCanvasName(uiCanvasName, "PhysicsLensWorldPanel");
     }
 
     private static string IncludeCanvasName(string canvasNames, string requiredCanvasName)

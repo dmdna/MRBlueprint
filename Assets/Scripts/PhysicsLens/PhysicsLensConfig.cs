@@ -23,9 +23,8 @@ public sealed class PhysicsLensConfig : ScriptableObject
     [SerializeField] private Vector2 compactPanelSize = new Vector2(400f, 480f);
     [SerializeField] private Vector2 expandedPanelSize = new Vector2(520f, 620f);
     [SerializeField] private float canvasWorldScale = 0.0012f;
-    [SerializeField] private Vector3 viewPinnedLocalPosition = new Vector3(-0.31f, 0f, 1.15f);
-    [SerializeField] private Vector3 viewPinnedLocalEuler = Vector3.zero;
-    [SerializeField] private float settingsDockGap = 14f;
+    [SerializeField] private Vector3 viewSpawnLensLocalPosition = new Vector3(-0.34f, -0.32f, 1.1f);
+    [SerializeField] private Vector3 viewSpawnSettingsLocalPosition = new Vector3(0.35f, -0.32f, 1.1f);
     [SerializeField] private float panelFollowSharpness = 13f;
     [SerializeField] private float panelRotationSharpness = 15f;
     [SerializeField] private float panelHorizontalOffset = 0.38f;
@@ -75,9 +74,8 @@ public sealed class PhysicsLensConfig : ScriptableObject
     public Vector2 CompactPanelSize => compactPanelSize;
     public Vector2 ExpandedPanelSize => expandedPanelSize;
     public float CanvasWorldScale => Mathf.Clamp(canvasWorldScale, 0.0005f, 0.006f);
-    public Vector3 ViewPinnedLocalPosition => viewPinnedLocalPosition;
-    public Vector3 ViewPinnedLocalEuler => viewPinnedLocalEuler;
-    public float SettingsDockGap => Mathf.Max(4f, settingsDockGap);
+    public Vector3 ViewSpawnLensLocalPosition => viewSpawnLensLocalPosition;
+    public Vector3 ViewSpawnSettingsLocalPosition => viewSpawnSettingsLocalPosition;
     public float PanelFollowSharpness => Mathf.Max(0.01f, panelFollowSharpness);
     public float PanelRotationSharpness => Mathf.Max(0.01f, panelRotationSharpness);
     public float PanelHorizontalOffset => Mathf.Max(0.05f, panelHorizontalOffset);
