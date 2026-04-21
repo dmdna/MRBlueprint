@@ -602,11 +602,13 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             transformGizmo.EndDrag();
 
         SandboxEditorModeState.SetSessionMode(SandboxEditorSessionMode.Draw);
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private void OnExitDrawClicked()
     {
         SandboxEditorModeState.SetSessionMode(SandboxEditorSessionMode.Edit);
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private static LineDrawing FindLineDrawingOrNull() =>
@@ -618,6 +620,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             return;
 
         DrawStrokeBridge.TryRemoveLastStroke(FindLineDrawingOrNull());
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private void OnDrawClearAllStrokesClicked()
@@ -626,6 +629,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             return;
 
         DrawStrokeBridge.TryClearAllStrokes(FindLineDrawingOrNull());
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private void UpdatePauseButtonIcon()
@@ -642,23 +646,27 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     private void OnSimulateClicked()
     {
         _simulation?.EnterSimulation();
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private void OnExitSimulationClicked()
     {
         _simulation?.ExitSimulation();
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private void OnTogglePauseClicked()
     {
         _simulation?.TogglePause();
         UpdatePauseButtonIcon();
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private void OnRestartSimulationClicked()
     {
         _simulation?.RestartSimulation();
         UpdatePauseButtonIcon();
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     private void SetOptionsVisible(bool visible)
