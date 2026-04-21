@@ -1347,6 +1347,8 @@ MonoBehaviour:
   verticalOffset: -0.1
   faceCamera: 1
   isOpen: 0
+  depthSortRaysWithDrawerItems: 1
+  drawerItemDepthRenderQueue: 2990
 --- !u!4 &395236581
 Transform:
   m_ObjectHideFlags: 0
@@ -1948,7 +1950,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1.2, y: 1, z: 0.02}
+  m_LocalScale: {x: 1.2, y: 1.4, z: 0.02}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 395236581}
@@ -1969,9 +1971,9 @@ MonoBehaviour:
   contentCanvasGroup: {fileID: 1326528686}
   openDuration: 0.25
   closedHeight: 0.002
-  openHeight: 1
+  openHeight: 1.4
   panelWidth: 1.2
-  panelDepth: 0.02
+  panelDepth: 0.05
 --- !u!65 &582282719
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -2018,7 +2020,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: fc13b0cbefea943858b67469f063cdd0, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -3634,22 +3636,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8c536a6aa007e40d681f280beafd3aff, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+  layoutOnStart: 1
   columns: 3
   spacingX: 0.3
   spacingY: 0.3
   zOffset: -0.02
---- !u!114 &1326528687
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1326528683}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e8f4d3c2b1a09f8e7d6c5b4a39281706, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SandboxDrawerAdditionalShapesBootstrap
 --- !u!225 &1326528686
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -3662,6 +3653,18 @@ CanvasGroup:
   m_Interactable: 1
   m_BlocksRaycasts: 1
   m_IgnoreParentGroups: 0
+--- !u!114 &1326528687
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1326528683}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e8f4d3c2b1a09f8e7d6c5b4a39281706, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SandboxDrawerAdditionalShapesBootstrap
 --- !u!1001 &1372689351
 PrefabInstance:
   m_ObjectHideFlags: 0
