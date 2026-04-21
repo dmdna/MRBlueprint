@@ -28,10 +28,59 @@ public static class MrBlueprintPrimitiveMeshes
 
         mesh.name = "MrBlueprint_" + kind;
         mesh.RecalculateBounds();
-        mesh.RecalculateNormals();
+        RecalculateNormalsByShape(mesh, kind);
         mesh.RecalculateTangents();
         Cache[kind] = mesh;
         return mesh;
+    }
+
+    private static void RecalculateNormalsByShape(Mesh mesh, MrBlueprintPlaceableShapeKind kind)
+    {
+        // Faceted shapes should keep hard edges; rounded shapes should stay smooth.
+        switch (kind)
+        {
+            case MrBlueprintPlaceableShapeKind.Cylinder:
+            case MrBlueprintPlaceableShapeKind.Cone:
+            case MrBlueprintPlaceableShapeKind.Hemisphere:
+            case MrBlueprintPlaceableShapeKind.Torus:
+            case MrBlueprintPlaceableShapeKind.Buckyball:
+                mesh.RecalculateNormals();
+                break;
+            default:
+                ApplyFlatShading(mesh);
+                break;
+        }
+    }
+
+    private static void ApplyFlatShading(Mesh mesh)
+    {
+        var srcVerts = mesh.vertices;
+        var srcTris = mesh.triangles;
+        var srcUv = mesh.uv;
+        var hasUv = srcUv != null && srcUv.Length == srcVerts.Length;
+
+        var flatVerts = new Vector3[srcTris.Length];
+        var flatTris = new int[srcTris.Length];
+        Vector2[] flatUv = null;
+        if (hasUv)
+            flatUv = new Vector2[srcTris.Length];
+
+        for (var i = 0; i < srcTris.Length; i++)
+        {
+            var srcIndex = srcTris[i];
+            flatVerts[i] = srcVerts[srcIndex];
+            flatTris[i] = i;
+            if (hasUv)
+                flatUv[i] = srcUv[srcIndex];
+        }
+
+        mesh.Clear();
+        mesh.vertices = flatVerts;
+        mesh.triangles = flatTris;
+        if (hasUv)
+            mesh.uv = flatUv;
+
+        mesh.RecalculateNormals();
     }
 
     private static Mesh GetBuiltinCylinderMesh()

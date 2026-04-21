@@ -36,6 +36,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private GameObject _canvasRoot;
     private GameObject _optionsOverlayRoot;
+    private GameObject _controlSchemeOverlayRoot;
     private GameObject _mainToolbarBar;
     private GameObject _simToolbarBar;
     private GameObject _drawToolbarBar;
@@ -66,6 +67,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
         BuildUi();
         BuildOptionsOverlay();
+        BuildControlSchemeOverlay();
         ApplyToolbarVisualPriority();
         _simulation.RefreshAllPlaceablesGravity();
 
@@ -254,6 +256,21 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 #endif
     }
 
+    private static Texture2D TryLoadUiTexture(string fileBase)
+    {
+        if (string.IsNullOrEmpty(fileBase))
+            return null;
+
+#if UNITY_EDITOR
+        return UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>($"Assets/UI/{fileBase}.png");
+#else
+        var tex = Resources.Load<Texture2D>($"UI/{fileBase}");
+        if (tex != null)
+            return tex;
+        return Resources.Load<Texture2D>(fileBase);
+#endif
+    }
+
     private void BuildSimToolbar(Transform canvasTransform, SandboxEditorToolbarTooltipHost tooltipHost)
     {
         _texPause = TryLoadToolbarIcon("icon_Pause");
@@ -331,7 +348,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
 
-        AddSlotButton(row.transform, "Edit", "", true, OnExitDrawClicked, tooltipHost,
+        AddSlotButton(row.transform, "Edit", "icon_Door", true, OnExitDrawClicked, tooltipHost,
             "Return to edit mode — place objects, drawer, simulate");
         AddSlotButton(row.transform, "DrawUndoLast", "icon_Scissors", true, OnDrawUndoLastStrokeClicked, tooltipHost,
             "Remove last stroke (same as stylus line undo when no line is selected)");
@@ -525,6 +542,79 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         _optionsOverlayRoot.SetActive(false);
     }
 
+    private void BuildControlSchemeOverlay()
+    {
+        if (_canvasRoot == null)
+            return;
+
+        _controlSchemeOverlayRoot = new GameObject("ControlSchemeOverlay");
+        _controlSchemeOverlayRoot.transform.SetParent(_canvasRoot.transform, false);
+        var ort = _controlSchemeOverlayRoot.AddComponent<RectTransform>();
+        ort.anchorMin = Vector2.zero;
+        ort.anchorMax = Vector2.one;
+        ort.offsetMin = Vector2.zero;
+        ort.offsetMax = Vector2.zero;
+
+        var dim = _controlSchemeOverlayRoot.AddComponent<Image>();
+        dim.color = new Color(0f, 0f, 0f, 0.6f);
+
+        var panel = new GameObject("ControlSchemePanel");
+        panel.transform.SetParent(_controlSchemeOverlayRoot.transform, false);
+        var prt = panel.AddComponent<RectTransform>();
+        prt.anchorMin = new Vector2(0.5f, 0.5f);
+        prt.anchorMax = new Vector2(0.5f, 0.5f);
+        prt.pivot = new Vector2(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero;
+        prt.sizeDelta = new Vector2(900f, 520f);
+
+        var pbg = panel.AddComponent<Image>();
+        pbg.color = new Color(0.05f, 0.07f, 0.1f, 0.98f);
+
+        var imgGo = new GameObject("ControlSchemeImage");
+        imgGo.transform.SetParent(panel.transform, false);
+        var imgRt = imgGo.AddComponent<RectTransform>();
+        imgRt.anchorMin = new Vector2(0.5f, 0.5f);
+        imgRt.anchorMax = new Vector2(0.5f, 0.5f);
+        imgRt.pivot = new Vector2(0.5f, 0.5f);
+        imgRt.anchoredPosition = new Vector2(0f, 8f);
+        imgRt.sizeDelta = new Vector2(860f, 470f);
+
+        var raw = imgGo.AddComponent<RawImage>();
+        raw.texture = TryLoadUiTexture("control-scheme");
+        raw.color = Color.white;
+        raw.raycastTarget = false;
+
+        var closeGo = new GameObject("Close");
+        closeGo.transform.SetParent(panel.transform, false);
+        var closeRt = closeGo.AddComponent<RectTransform>();
+        closeRt.anchorMin = new Vector2(0.5f, 0f);
+        closeRt.anchorMax = new Vector2(0.5f, 0f);
+        closeRt.pivot = new Vector2(0.5f, 0f);
+        closeRt.anchoredPosition = new Vector2(0f, 14f);
+        closeRt.sizeDelta = new Vector2(180f, 34f);
+        var closeImg = closeGo.AddComponent<Image>();
+        closeImg.color = new Color(0.2f, 0.24f, 0.3f, 1f);
+        var closeBtn = closeGo.AddComponent<Button>();
+        closeBtn.targetGraphic = closeImg;
+        closeBtn.onClick.AddListener(() => SetControlSchemeVisible(false));
+
+        var closeTxGo = new GameObject("Text");
+        closeTxGo.transform.SetParent(closeGo.transform, false);
+        var closeTx = closeTxGo.AddComponent<Text>();
+        closeTx.font = MrBlueprintUiFont.GetDefault();
+        closeTx.text = "Close";
+        closeTx.fontSize = 14;
+        closeTx.color = Color.white;
+        closeTx.alignment = TextAnchor.MiddleCenter;
+        var closeTxRt = closeTxGo.GetComponent<RectTransform>();
+        closeTxRt.anchorMin = Vector2.zero;
+        closeTxRt.anchorMax = Vector2.one;
+        closeTxRt.offsetMin = Vector2.zero;
+        closeTxRt.offsetMax = Vector2.zero;
+
+        _controlSchemeOverlayRoot.SetActive(false);
+    }
+
     private void ApplyToolbarVisualPriority()
     {
         if (_canvasRoot == null)
@@ -678,6 +768,12 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             _optionsOverlayRoot.SetActive(visible);
     }
 
+    private void SetControlSchemeVisible(bool visible)
+    {
+        if (_controlSchemeOverlayRoot != null)
+            _controlSchemeOverlayRoot.SetActive(visible);
+    }
+
     public bool IsToolbarVisible => _canvasRoot != null && _canvasRoot.activeSelf;
 
     public void SetToolbarVisible(bool visible)
@@ -791,12 +887,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private void OnHelpClicked()
     {
-        if (drawerHints == null)
-            drawerHints = FindFirstObjectByType<SandboxDrawerHints>();
-        if (drawerHints == null)
-            return;
-
-        drawerHints.SetHintsVisible(!drawerHints.AreHintsVisible);
+        var next = _controlSchemeOverlayRoot == null || !_controlSchemeOverlayRoot.activeSelf;
+        SetControlSchemeVisible(next);
     }
 
     private void OnOptionsClicked()
