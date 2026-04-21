@@ -6,6 +6,7 @@ using UnityEngine.UI;
 /// </summary>
 public class SandboxDrawerHints : MonoBehaviour
 {
+    [SerializeField] private bool startVisible;
     [SerializeField] private string hintText =
         "D — open / close drawer\nClick a tile (Cube / Sphere) to select\nSpace — spawn selected object (drawer must be open)";
 
@@ -58,5 +59,7 @@ public class SandboxDrawerHints : MonoBehaviour
         text.horizontalOverflow = HorizontalWrapMode.Wrap;
         text.verticalOverflow = VerticalWrapMode.Overflow;
         text.raycastTarget = false;
+
+        SetHintsVisible(startVisible);
     }
 }
