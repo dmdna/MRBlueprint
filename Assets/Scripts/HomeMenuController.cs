@@ -10,6 +10,8 @@ using UnityEngine.UI;
 public class HomeMenuController : MonoBehaviour
 {
     private const string AmbientAudioObjectName = "MenuAmbientAudio";
+    private const string CreditsBodyText =
+        "MR Blueprint\nDevStudio 2026 by Logitech\n\nSkylar Knight\nDiego Medina Molina\nVishnu Sai Vardhan Bodapati";
 
     [SerializeField] private string editorSceneName = "MainScene";
     [SerializeField] private float menuDistance = 1.35f;
@@ -198,11 +200,11 @@ public class HomeMenuController : MonoBehaviour
         if (!TryPlaceLogo3d(canvasGo.transform))
             BuildTitleFallback(canvasGo.transform, font);
 
-        CreateButton(canvasGo.transform, font, "Start", startButtonAnchoredPosition, new Vector2(280f, 52f), LoadEditor);
-        CreateButton(canvasGo.transform, font, "Credits", creditsButtonAnchoredPosition, new Vector2(200f, 40f), ShowCredits);
-        CreateButton(canvasGo.transform, font, "Quit", quitButtonAnchoredPosition, new Vector2(200f, 40f), QuitApp);
+        CreateMenuButton(canvasGo.transform, font, "Start", startButtonAnchoredPosition, new Vector2(280f, 52f), LoadEditor);
+        CreateMenuButton(canvasGo.transform, font, "Credits", creditsButtonAnchoredPosition, new Vector2(200f, 40f), ShowCredits);
+        CreateMenuButton(canvasGo.transform, font, "Quit", quitButtonAnchoredPosition, new Vector2(200f, 40f), QuitApp);
 
-        _creditsRoot = BuildCreditsPanel(canvasGo.transform, font);
+        _creditsRoot = BuildCreditsPanel(canvasGo.transform, font, HideCredits, creditsPanelCanvasDepth);
         _creditsRoot.SetActive(false);
     }
 
@@ -416,7 +418,7 @@ public class HomeMenuController : MonoBehaviour
         return main;
     }
 
-    private static void CreateButton(Transform parent, Font font, string label, Vector2 anchoredPos, Vector2 size,
+    public static Button CreateMenuButton(Transform parent, Font font, string label, Vector2 anchoredPos, Vector2 size,
         UnityEngine.Events.UnityAction onClick)
     {
         var go = new GameObject("Btn_" + label);
@@ -432,7 +434,8 @@ public class HomeMenuController : MonoBehaviour
         img.color = new Color(0.22f, 0.42f, 0.72f, 1f);
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
-        btn.onClick.AddListener(onClick);
+        if (onClick != null)
+            btn.onClick.AddListener(onClick);
 
         var textGo = new GameObject("Text");
         textGo.transform.SetParent(go.transform, false);
@@ -447,9 +450,12 @@ public class HomeMenuController : MonoBehaviour
         trt.anchorMax = Vector2.one;
         trt.offsetMin = Vector2.zero;
         trt.offsetMax = Vector2.zero;
+
+        return btn;
     }
 
-    private GameObject BuildCreditsPanel(Transform canvas, Font font)
+    public static GameObject BuildCreditsPanel(Transform canvas, Font font, UnityEngine.Events.UnityAction onBack,
+        float canvasDepth = 0f)
     {
         var root = new GameObject("CreditsPanel");
         root.transform.SetParent(canvas, false);
@@ -459,7 +465,7 @@ public class HomeMenuController : MonoBehaviour
         rootRt.anchorMax = Vector2.one;
         rootRt.offsetMin = Vector2.zero;
         rootRt.offsetMax = Vector2.zero;
-        SetRectTransformDepth(rootRt, creditsPanelCanvasDepth);
+        SetRectTransformDepth(rootRt, canvasDepth);
 
         var box = new GameObject("Box");
         box.transform.SetParent(root.transform, false);
@@ -477,7 +483,7 @@ public class HomeMenuController : MonoBehaviour
         body.font = font;
         body.fontSize = 20;
         body.color = new Color(0.9f, 0.9f, 0.92f);
-        body.text = "MR Blueprint\nDevStudio 2026 by Logitech\n\nSkylar Knight\nDiego Medina Molina\nVishnu Sai Vardhan Bodapati";
+        body.text = CreditsBodyText;
         body.alignment = TextAnchor.MiddleCenter;
         var bodyRt = bodyGo.GetComponent<RectTransform>();
         bodyRt.anchorMin = new Vector2(0f, 0.2f);
@@ -485,7 +491,7 @@ public class HomeMenuController : MonoBehaviour
         bodyRt.offsetMin = new Vector2(24f, 16f);
         bodyRt.offsetMax = new Vector2(-24f, -16f);
 
-        CreateButton(box.transform, font, "Back", new Vector2(0f, -100f), new Vector2(160f, 40f), HideCredits);
+        CreateMenuButton(box.transform, font, "Back", new Vector2(0f, -100f), new Vector2(160f, 40f), onBack);
 
         return root;
     }
@@ -512,6 +518,11 @@ public class HomeMenuController : MonoBehaviour
     }
 
     public void QuitApp()
+    {
+        QuitApplication();
+    }
+
+    public static void QuitApplication()
     {
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;

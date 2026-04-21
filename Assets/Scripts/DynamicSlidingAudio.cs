@@ -49,6 +49,19 @@ public sealed class DynamicSlidingAudio : MonoBehaviour
 
     private void FixedUpdate()
     {
+        if (UiMenuSelectSoundHub.SoundEffectsMuted)
+        {
+            _smoothedLoudness = 0f;
+            if (_audio != null)
+            {
+                _audio.volume = 0f;
+                if (_audio.isPlaying)
+                    _audio.Pause();
+            }
+
+            return;
+        }
+
         var sim = SandboxSimulationController.Instance
                   ?? UnityEngine.Object.FindFirstObjectByType<SandboxSimulationController>();
 

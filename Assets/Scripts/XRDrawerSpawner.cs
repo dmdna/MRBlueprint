@@ -62,7 +62,7 @@ public class XRDrawerSpawner : MonoBehaviour
         instance.SetActive(true);
         EnsureTelemetryFeatures(instance);
 
-        if (spawnSoundClip != null)
+        if (spawnSoundClip != null && !UiMenuSelectSoundHub.SoundEffectsMuted)
             AudioSource.PlayClipAtPoint(spawnSoundClip, spawnPos, spawnSoundVolume);
 
         var templateMarker = instance.GetComponent<SpawnTemplateMarker>();

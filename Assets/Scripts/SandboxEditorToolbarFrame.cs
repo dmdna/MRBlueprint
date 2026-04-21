@@ -12,6 +12,11 @@ using UnityEngine.SceneManagement;
 public class SandboxEditorToolbarFrame : MonoBehaviour
 {
     private const int MinimumOverlaySortingOrder = 500;
+    private static readonly Color OptionsPanelBackground = new Color(0.035f, 0.04f, 0.048f, 0.98f);
+    private static readonly Color OptionsPanelAccent = new Color(0.22f, 0.62f, 1f, 1f);
+    private static readonly Color OptionsTextPrimary = new Color(0.93f, 0.97f, 1f, 1f);
+    private static readonly Color OptionsTextSecondary = new Color(0.64f, 0.77f, 0.9f, 1f);
+    private static readonly Color OptionsTrackBackground = new Color(0.12f, 0.17f, 0.22f, 0.95f);
 
     [SerializeField] private XRContentDrawerController drawerController;
     [SerializeField] private PlaceableTransformGizmo transformGizmo;
@@ -36,11 +41,13 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private GameObject _canvasRoot;
     private GameObject _optionsOverlayRoot;
+    private GameObject _optionsCreditsRoot;
     private GameObject _controlSchemeOverlayRoot;
     private GameObject _mainToolbarBar;
     private GameObject _simToolbarBar;
     private GameObject _drawToolbarBar;
     private Button _drawModeToolbarButton;
+    private Toggle _soundEffectsMuteToggle;
     private RawImage _simPauseButtonIcon;
     private Texture2D _texPause;
     private Texture2D _texResume;
@@ -457,6 +464,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         if (_canvasRoot == null)
             return;
 
+        var font = MrBlueprintUiFont.GetDefault();
+
         _optionsOverlayRoot = new GameObject("OptionsOverlay");
         _optionsOverlayRoot.transform.SetParent(_canvasRoot.transform, false);
         var ort = _optionsOverlayRoot.AddComponent<RectTransform>();
@@ -466,7 +475,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         ort.offsetMax = Vector2.zero;
 
         var dim = _optionsOverlayRoot.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.45f);
+        dim.color = new Color(0f, 0f, 0f, 0.55f);
 
         var panel = new GameObject("OptionsPanel");
         panel.transform.SetParent(_optionsOverlayRoot.transform, false);
@@ -475,71 +484,152 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         prt.anchorMax = new Vector2(0.5f, 0.5f);
         prt.pivot = new Vector2(0.5f, 0.5f);
         prt.anchoredPosition = Vector2.zero;
-        prt.sizeDelta = new Vector2(400f, 220f);
+        prt.sizeDelta = new Vector2(460f, 360f);
 
         var pbg = panel.AddComponent<Image>();
-        pbg.color = new Color(0.1f, 0.11f, 0.14f, 0.98f);
+        pbg.color = OptionsPanelBackground;
+        pbg.raycastTarget = true;
 
         var titleGo = new GameObject("Title");
         titleGo.transform.SetParent(panel.transform, false);
         var titleRt = titleGo.AddComponent<RectTransform>();
-        titleRt.anchorMin = new Vector2(0f, 1f);
-        titleRt.anchorMax = new Vector2(1f, 1f);
-        titleRt.pivot = new Vector2(0.5f, 1f);
-        titleRt.anchoredPosition = new Vector2(0f, -12f);
-        titleRt.sizeDelta = new Vector2(-24f, 28f);
+        titleRt.anchorMin = new Vector2(0.5f, 0.5f);
+        titleRt.anchorMax = new Vector2(0.5f, 0.5f);
+        titleRt.pivot = new Vector2(0.5f, 0.5f);
+        titleRt.anchoredPosition = new Vector2(0f, 142f);
+        titleRt.sizeDelta = new Vector2(420f, 34f);
         var title = titleGo.AddComponent<Text>();
-        title.font = MrBlueprintUiFont.GetDefault();
+        title.font = font;
         title.text = "Options";
         title.fontSize = 20;
-        title.color = Color.white;
+        title.color = OptionsTextPrimary;
         title.alignment = TextAnchor.MiddleCenter;
+        title.raycastTarget = false;
 
-        var stubGo = new GameObject("StubNote");
-        stubGo.transform.SetParent(panel.transform, false);
-        var stubRt = stubGo.AddComponent<RectTransform>();
-        stubRt.anchorMin = new Vector2(0f, 0.35f);
-        stubRt.anchorMax = new Vector2(1f, 0.85f);
-        stubRt.offsetMin = new Vector2(16f, 0f);
-        stubRt.offsetMax = new Vector2(-16f, 0f);
-        var stub = stubGo.AddComponent<Text>();
-        stub.font = MrBlueprintUiFont.GetDefault();
-        stub.text = "Placeholder — audio / graphics toggles can go here.";
-        stub.fontSize = 14;
-        stub.color = new Color(0.85f, 0.85f, 0.88f, 1f);
-        stub.alignment = TextAnchor.MiddleCenter;
-        stub.horizontalOverflow = HorizontalWrapMode.Wrap;
-        stub.verticalOverflow = VerticalWrapMode.Overflow;
+        CreateOptionsAccentRule(panel.transform, new Vector2(0f, 116f), 300f);
 
-        var closeGo = new GameObject("Close");
-        closeGo.transform.SetParent(panel.transform, false);
-        var closeRt = closeGo.AddComponent<RectTransform>();
-        closeRt.anchorMin = new Vector2(0.5f, 0f);
-        closeRt.anchorMax = new Vector2(0.5f, 0f);
-        closeRt.pivot = new Vector2(0.5f, 0f);
-        closeRt.anchoredPosition = new Vector2(0f, 16f);
-        closeRt.sizeDelta = new Vector2(160f, 36f);
-        var closeImg = closeGo.AddComponent<Image>();
-        closeImg.color = new Color(0.35f, 0.35f, 0.4f, 1f);
-        var closeBtn = closeGo.AddComponent<Button>();
-        closeBtn.targetGraphic = closeImg;
-        closeBtn.onClick.AddListener(() => SetOptionsVisible(false));
+        _soundEffectsMuteToggle = CreateOptionsMuteToggle(panel.transform, font, new Vector2(0f, 78f));
+        _soundEffectsMuteToggle.SetIsOnWithoutNotify(UiMenuSelectSoundHub.SoundEffectsMuted);
 
-        var closeTxGo = new GameObject("Text");
-        closeTxGo.transform.SetParent(closeGo.transform, false);
-        var closeTx = closeTxGo.AddComponent<Text>();
-        closeTx.font = MrBlueprintUiFont.GetDefault();
-        closeTx.text = "Close";
-        closeTx.fontSize = 15;
-        closeTx.color = Color.white;
-        closeTx.alignment = TextAnchor.MiddleCenter;
-        var closeTxRt = closeTxGo.GetComponent<RectTransform>();
-        closeTxRt.anchorMin = Vector2.zero;
-        closeTxRt.anchorMax = Vector2.one;
-        closeTxRt.offsetMin = Vector2.zero;
-        closeTxRt.offsetMax = Vector2.zero;
+        HomeMenuController.CreateMenuButton(
+            panel.transform,
+            font,
+            "Credits",
+            new Vector2(0f, 27f),
+            new Vector2(280f, 42f),
+            ShowOptionsCredits);
+        HomeMenuController.CreateMenuButton(
+            panel.transform,
+            font,
+            "Exit to Home Menu",
+            new Vector2(0f, -27f),
+            new Vector2(280f, 42f),
+            OnHomeClicked);
+        HomeMenuController.CreateMenuButton(
+            panel.transform,
+            font,
+            "Quit App",
+            new Vector2(0f, -81f),
+            new Vector2(280f, 42f),
+            OnQuitAppClicked);
+        HomeMenuController.CreateMenuButton(
+            panel.transform,
+            font,
+            "Close",
+            new Vector2(0f, -140f),
+            new Vector2(170f, 36f),
+            () => SetOptionsVisible(false));
+
+        _optionsCreditsRoot = HomeMenuController.BuildCreditsPanel(
+            _optionsOverlayRoot.transform,
+            font,
+            HideOptionsCredits);
+        _optionsCreditsRoot.SetActive(false);
 
         _optionsOverlayRoot.SetActive(false);
+    }
+
+    private Toggle CreateOptionsMuteToggle(Transform parent, Font font, Vector2 anchoredPosition)
+    {
+        var row = new GameObject("MuteRow");
+        row.transform.SetParent(parent, false);
+        var rowRt = row.AddComponent<RectTransform>();
+        rowRt.anchorMin = new Vector2(0.5f, 0.5f);
+        rowRt.anchorMax = new Vector2(0.5f, 0.5f);
+        rowRt.pivot = new Vector2(0.5f, 0.5f);
+        rowRt.anchoredPosition = anchoredPosition;
+        rowRt.sizeDelta = new Vector2(280f, 34f);
+
+        var label = CreateOptionsText(row.transform, "Label", "Mute", font, 16, TextAnchor.MiddleLeft);
+        label.color = OptionsTextSecondary;
+        var labelRt = label.GetComponent<RectTransform>();
+        labelRt.anchorMin = new Vector2(0f, 0f);
+        labelRt.anchorMax = new Vector2(0.7f, 1f);
+        labelRt.offsetMin = Vector2.zero;
+        labelRt.offsetMax = Vector2.zero;
+
+        var toggleGo = new GameObject("MuteToggle");
+        toggleGo.transform.SetParent(row.transform, false);
+        var toggleRt = toggleGo.AddComponent<RectTransform>();
+        toggleRt.anchorMin = new Vector2(1f, 0.5f);
+        toggleRt.anchorMax = new Vector2(1f, 0.5f);
+        toggleRt.pivot = new Vector2(0.5f, 0.5f);
+        toggleRt.anchoredPosition = new Vector2(-18f, 0f);
+        toggleRt.sizeDelta = new Vector2(28f, 28f);
+
+        var toggleBg = toggleGo.AddComponent<Image>();
+        toggleBg.color = OptionsTrackBackground;
+        var toggle = toggleGo.AddComponent<Toggle>();
+        toggle.targetGraphic = toggleBg;
+        toggle.graphic = CreateOptionsToggleGraphic(toggleGo.transform);
+        toggle.onValueChanged.AddListener(OnSoundEffectsMuteChanged);
+        return toggle;
+    }
+
+    private static Text CreateOptionsText(Transform parent, string name, string text, Font font, int fontSize,
+        TextAnchor alignment)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var t = go.AddComponent<Text>();
+        t.font = font;
+        t.text = text;
+        t.fontSize = fontSize;
+        t.color = OptionsTextPrimary;
+        t.alignment = alignment;
+        t.horizontalOverflow = HorizontalWrapMode.Wrap;
+        t.verticalOverflow = VerticalWrapMode.Truncate;
+        t.raycastTarget = false;
+        return t;
+    }
+
+    private static Graphic CreateOptionsToggleGraphic(Transform parent)
+    {
+        var go = new GameObject("Checkmark");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(4f, 4f);
+        rt.offsetMax = new Vector2(-4f, -4f);
+        var image = go.AddComponent<Image>();
+        image.color = OptionsPanelAccent;
+        return image;
+    }
+
+    private static void CreateOptionsAccentRule(Transform parent, Vector2 anchoredPosition, float width)
+    {
+        var go = new GameObject("AccentRule");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = anchoredPosition;
+        rt.sizeDelta = new Vector2(width, 3f);
+        var image = go.AddComponent<Image>();
+        image.color = OptionsPanelAccent;
+        image.raycastTarget = false;
     }
 
     private void BuildControlSchemeOverlay()
@@ -765,7 +855,46 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     private void SetOptionsVisible(bool visible)
     {
         if (_optionsOverlayRoot != null)
+        {
+            if (visible)
+                RefreshOptionsControls();
+            else
+                SetOptionsCreditsVisible(false);
+
             _optionsOverlayRoot.SetActive(visible);
+        }
+    }
+
+    private void RefreshOptionsControls()
+    {
+        if (_soundEffectsMuteToggle != null)
+            _soundEffectsMuteToggle.SetIsOnWithoutNotify(UiMenuSelectSoundHub.SoundEffectsMuted);
+    }
+
+    private void SetOptionsCreditsVisible(bool visible)
+    {
+        if (_optionsCreditsRoot != null)
+            _optionsCreditsRoot.SetActive(visible);
+    }
+
+    private void ShowOptionsCredits()
+    {
+        SetOptionsCreditsVisible(true);
+    }
+
+    private void HideOptionsCredits()
+    {
+        SetOptionsCreditsVisible(false);
+    }
+
+    private void OnSoundEffectsMuteChanged(bool muted)
+    {
+        UiMenuSelectSoundHub.SetSoundEffectsMuted(muted);
+    }
+
+    private void OnQuitAppClicked()
+    {
+        HomeMenuController.QuitApplication();
     }
 
     private void SetControlSchemeVisible(bool visible)

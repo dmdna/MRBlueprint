@@ -9,6 +9,8 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class UiMenuSelectSoundHub : MonoBehaviour
 {
+    private const string SoundEffectsMutedPrefsKey = "MRBlueprint.SoundEffectsMuted";
+
     [Header("Default UI")]
     [Tooltip("Plays for generic buttons/toggles/dropdowns and explicit TryPlayFromInteraction call sites.")]
     [SerializeField] private AudioClip menuSelectClip;
@@ -29,11 +31,52 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
     private float _lastPlayUnscaled = -999f;
     private static UiMenuSelectSoundHub _instance;
     private static float _suppressDefaultUntilUnscaled = -999f;
+    private static bool _soundEffectsMuted;
+    private static bool _mutePreferenceLoaded;
     private readonly List<RaycastResult> _raycastScratch = new(16);
+
+    public static bool SoundEffectsMuted
+    {
+        get
+        {
+            EnsureMutePreferenceLoaded();
+            return _soundEffectsMuted;
+        }
+    }
+
+    public static void SetSoundEffectsMuted(bool muted)
+    {
+        EnsureMutePreferenceLoaded();
+        if (_soundEffectsMuted == muted)
+        {
+            return;
+        }
+
+        _soundEffectsMuted = muted;
+        PlayerPrefs.SetInt(SoundEffectsMutedPrefsKey, muted ? 1 : 0);
+        PlayerPrefs.Save();
+
+        if (muted && _instance != null && _instance._audio != null)
+        {
+            _instance._audio.Stop();
+        }
+    }
+
+    private static void EnsureMutePreferenceLoaded()
+    {
+        if (_mutePreferenceLoaded)
+        {
+            return;
+        }
+
+        _soundEffectsMuted = PlayerPrefs.GetInt(SoundEffectsMutedPrefsKey, 0) != 0;
+        _mutePreferenceLoaded = true;
+    }
 
     private void Awake()
     {
         _instance = this;
+        EnsureMutePreferenceLoaded();
         _audio = GetComponent<AudioSource>();
         if (_audio == null)
             _audio = gameObject.AddComponent<AudioSource>();
@@ -103,7 +146,7 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
 
     private void PlayEffect(AudioClip clip)
     {
-        if (clip == null || _audio == null)
+        if (SoundEffectsMuted || clip == null || _audio == null)
             return;
 
         var t = Time.unscaledTime;
@@ -116,7 +159,7 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
 
     private void TryPlayInternal()
     {
-        if (menuSelectClip == null || _audio == null)
+        if (SoundEffectsMuted || menuSelectClip == null || _audio == null)
             return;
 
         var t = Time.unscaledTime;
@@ -132,7 +175,7 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
 
     private void Update()
     {
-        if (menuSelectClip == null || _audio == null)
+        if (SoundEffectsMuted || menuSelectClip == null || _audio == null)
             return;
 
         var mouse = Mouse.current;
