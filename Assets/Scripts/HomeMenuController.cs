@@ -25,6 +25,7 @@ public class HomeMenuController : MonoBehaviour
     [SerializeField] private float logo3dCanvasDepth = 20f;
     [SerializeField] private Vector2 startButtonAnchoredPosition = new Vector2(0f, -112f);
     [SerializeField] private Vector2 creditsButtonAnchoredPosition = new Vector2(0f, -192f);
+    [SerializeField] private Vector2 quitButtonAnchoredPosition = new Vector2(0f, -256f);
 
     [Header("Background (HomeMenu scene only)")]
     [SerializeField] private AudioClip menuAmbientClip;
@@ -131,6 +132,7 @@ public class HomeMenuController : MonoBehaviour
 
         CreateButton(canvasGo.transform, font, "Start", startButtonAnchoredPosition, new Vector2(280f, 52f), LoadEditor);
         CreateButton(canvasGo.transform, font, "Credits", creditsButtonAnchoredPosition, new Vector2(200f, 40f), ShowCredits);
+        CreateButton(canvasGo.transform, font, "Quit", quitButtonAnchoredPosition, new Vector2(200f, 40f), QuitApp);
 
         _creditsRoot = BuildCreditsPanel(canvasGo.transform, font);
         _creditsRoot.SetActive(false);
@@ -428,6 +430,15 @@ public class HomeMenuController : MonoBehaviour
         }
 
         SceneManager.LoadScene(editorSceneName, LoadSceneMode.Single);
+    }
+
+    public void QuitApp()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     private void ShowCredits()
