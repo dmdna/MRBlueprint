@@ -9,7 +9,8 @@ using UnityEngine.InputSystem.UI;
 /// </summary>
 public class PlaceableInspectorPanel : MonoBehaviour
 {
-    private static readonly Vector2 ObjectPanelSize = new Vector2(300f, 524f);
+    private const float MaxHeadsetPanelWorldScale = 0.00135f;
+    private static readonly Vector2 ObjectPanelSize = new Vector2(300f, 492f);
     private static readonly Vector2 DrawingPanelSize = new Vector2(300f, 176f);
     private static readonly Color PanelBackground = new Color(0.035f, 0.04f, 0.048f, 0.94f);
     private static readonly Color PanelAccent = new Color(0.22f, 0.62f, 1f, 1f);
@@ -29,8 +30,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
     [SerializeField] private Camera headsetPanelCamera;
     [SerializeField] private Vector3 headsetPanelLocalPosition = new Vector3(0.32f, 0f, 1.15f);
     [SerializeField] private Vector3 headsetPanelLocalEuler = Vector3.zero;
-    [SerializeField] private float headsetPanelWorldScale = 0.0015f;
-    [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(320f, 500f);
+    [SerializeField] private float headsetPanelWorldScale = 0.00135f;
+    [SerializeField] private Vector2 headsetPanelCanvasSize = new Vector2(320f, 492f);
 
     public static PlaceableInspectorPanel Instance { get; private set; }
     public Vector2 DockPanelSize => ObjectPanelSize;
@@ -394,7 +395,10 @@ public class PlaceableInspectorPanel : MonoBehaviour
                 Mathf.Max(headsetPanelCanvasSize.y, ObjectPanelSize.y));
             _canvasRect.localPosition = headsetPanelLocalPosition;
             _canvasRect.localRotation = Quaternion.Euler(headsetPanelLocalEuler);
-            _canvasRect.localScale = Vector3.one * headsetPanelWorldScale;
+            _canvasRect.localScale = Vector3.one * Mathf.Clamp(
+                headsetPanelWorldScale,
+                0.0005f,
+                MaxHeadsetPanelWorldScale);
         }
 
         _canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;

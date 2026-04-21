@@ -21,7 +21,6 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
     private Text _massChipText;
     private Text _gravityChipText;
     private Text _pinText;
-    private Text _settingsText;
     private readonly Text[] _heroLabels = new Text[3];
     private readonly Text[] _heroValues = new Text[3];
     private readonly Image[] _causeImages = new Image[CauseLabels.Length];
@@ -39,21 +38,16 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
     private bool _isPinned;
     private bool _isOpen;
     private float _targetAlpha;
-    private Vector3 _smoothedPosition;
-    private Quaternion _smoothedRotation = Quaternion.identity;
-    private bool _hasSmoothedPose;
 
     public event Action PinPressed;
-    public event Action SettingsPressed;
 
     public bool IsExpanded => _isExpanded;
     public bool IsPinned => _isPinned;
     public bool IsOpen => _isOpen;
-    public bool IsSettingsOpen { get; private set; } = true;
     public Vector2 CurrentPanelSize => _config != null
         ? (_isExpanded ? _config.ExpandedPanelSize : _config.CompactPanelSize)
-        : new Vector2(430f, 520f);
-    public float CanvasWorldScale => _config != null ? _config.CanvasWorldScale : 0.00165f;
+        : new Vector2(400f, 480f);
+    public float CanvasWorldScale => _config != null ? _config.CanvasWorldScale : 0.0012f;
 
     public void Initialize(PhysicsLensConfig config)
     {
@@ -82,7 +76,6 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
                 _panelRect.gameObject.SetActive(true);
             if (_leader != null)
                 _leader.enabled = true;
-            _hasSmoothedPose = false;
         }
 
         if (_canvasGroup != null)
@@ -110,22 +103,11 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         if (_expandedRoot != null)
             _expandedRoot.SetActive(expanded);
         if (_pinText != null)
-            _pinText.text = pinned ? "Pinned" : "Pin";
+            _pinText.text = expanded ? "Less" : "More";
         if (_advancedRoot != null && !expanded)
             _advancedRoot.SetActive(false);
 
         ApplyLayout();
-    }
-
-    public void SetSettingsOpen(bool open)
-    {
-        IsSettingsOpen = open;
-        if (_settingsText != null)
-        {
-            _settingsText.color = open
-                ? (_config != null ? _config.PanelAccent : Color.cyan)
-                : (_config != null ? _config.TextPrimary : Color.white);
-        }
     }
 
     public bool TryGetSettingsDockPose(Vector2 settingsSize, out Vector3 position, out Quaternion rotation, out float worldScale)
@@ -140,7 +122,8 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         }
 
         var panelSize = CurrentPanelSize;
-        var localX = panelSize.x * 0.5f + settingsSize.x * 0.5f + 18f;
+        var gap = _config != null ? _config.SettingsDockGap : 14f;
+        var localX = panelSize.x * 0.5f + settingsSize.x * 0.5f + gap;
         position = transform.TransformPoint(new Vector3(localX, 0f, 0f));
         rotation = transform.rotation;
         worldScale = CanvasWorldScale;
@@ -188,54 +171,23 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
             _phase.Render(tracker, tracker.Constraint);
     }
 
-    public void UpdateFollow(Camera camera, Vector3 centerOfMass, Bounds bounds)
+    public void UpdatePinnedPose(Camera camera, Vector3 centerOfMass)
     {
         if (camera == null || _config == null)
             return;
 
         SetCamera(camera);
 
-        var viewport = camera.WorldToViewportPoint(centerOfMass);
-        var side = viewport.x > 0.52f ? -1f : 1f;
-        var radius = Mathf.Max(bounds.extents.x, Mathf.Max(bounds.extents.y, bounds.extents.z));
-        radius = Mathf.Max(radius, _config.MinObjectClearance);
-        var towardCamera = camera.transform.position - centerOfMass;
-        if (towardCamera.sqrMagnitude <= 0.0001f)
-            towardCamera = -camera.transform.forward;
-        towardCamera.Normalize();
-
-        var targetPosition = centerOfMass
-                             + camera.transform.right * side * (_config.PanelHorizontalOffset + radius)
-                             + camera.transform.up * (_config.PanelVerticalOffset + radius * 0.18f)
-                             + towardCamera * _config.PanelForwardOffset;
-
-        var initialLookDirection = targetPosition - camera.transform.position;
-        if (initialLookDirection.sqrMagnitude <= 0.0001f)
-            initialLookDirection = camera.transform.forward;
-        var initialRotation = Quaternion.LookRotation(initialLookDirection.normalized, camera.transform.up);
-        var positionBlend = 1f - Mathf.Exp(-_config.PanelFollowSharpness * Time.unscaledDeltaTime);
-        if (!_hasSmoothedPose)
-        {
-            _smoothedPosition = targetPosition;
-            _smoothedRotation = initialRotation;
-            _hasSmoothedPose = true;
-        }
-        _smoothedPosition = Vector3.Lerp(_smoothedPosition, targetPosition, positionBlend);
-
-        var lookDirection = _smoothedPosition - camera.transform.position;
-        if (lookDirection.sqrMagnitude <= 0.0001f)
-            lookDirection = camera.transform.forward;
-        var targetRotation = Quaternion.LookRotation(lookDirection.normalized, camera.transform.up);
-        var rotationBlend = 1f - Mathf.Exp(-_config.PanelRotationSharpness * Time.unscaledDeltaTime);
-        _smoothedRotation = Quaternion.Slerp(_smoothedRotation, targetRotation, rotationBlend);
-
-        transform.SetPositionAndRotation(_smoothedPosition, _smoothedRotation);
+        var targetPosition = camera.transform.TransformPoint(_config.ViewPinnedLocalPosition);
+        var targetRotation = camera.transform.rotation * Quaternion.Euler(_config.ViewPinnedLocalEuler);
+        transform.SetPositionAndRotation(targetPosition, targetRotation);
+        transform.localScale = Vector3.one * _config.CanvasWorldScale;
 
         if (_leader != null)
         {
             _leader.enabled = _canvasGroup == null || _canvasGroup.alpha > 0.01f;
             _leader.SetPosition(0, centerOfMass);
-            _leader.SetPosition(1, _smoothedPosition);
+            _leader.SetPosition(1, targetPosition);
             var color = _config.PanelAccent;
             color.a = (_canvasGroup != null ? _canvasGroup.alpha : 1f) * 0.72f;
             _leader.startColor = color;
@@ -277,8 +229,8 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         _canvasGroup = gameObject.AddComponent<CanvasGroup>();
 
         var rect = gameObject.GetComponent<RectTransform>();
-        rect.sizeDelta = _config != null ? _config.CompactPanelSize : new Vector2(430f, 520f);
-        transform.localScale = Vector3.one * (_config != null ? _config.CanvasWorldScale : 0.00165f);
+        rect.sizeDelta = _config != null ? _config.CompactPanelSize : new Vector2(400f, 480f);
+        transform.localScale = Vector3.one * (_config != null ? _config.CanvasWorldScale : 0.0012f);
     }
 
     private void BuildPanel()
@@ -304,7 +256,6 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         _massChipText = CreateChipText(panel.transform, "MassChip", font, 15);
         _gravityChipText = CreateChipText(panel.transform, "GravityChip", font, 15);
         CreatePinButton(panel.transform, font);
-        CreateSettingsButton(panel.transform, font);
 
         for (var i = 0; i < 3; i++)
         {
@@ -438,17 +389,9 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
 
     private void CreatePinButton(Transform parent, Font font)
     {
-        var button = CreateSmallButton(parent, "PinButton", "Pin", font, Vector2.zero, new Vector2(64f, 28f));
+        var button = CreateSmallButton(parent, "DetailsButton", "More", font, Vector2.zero, new Vector2(64f, 28f));
         button.onClick.AddListener(HandlePinClicked);
         _pinText = button.GetComponentInChildren<Text>();
-    }
-
-    private void CreateSettingsButton(Transform parent, Font font)
-    {
-        var button = CreateSmallButton(parent, "SettingsButton", "⚙", font, Vector2.zero, new Vector2(34f, 28f));
-        button.onClick.AddListener(HandleSettingsClicked);
-        _settingsText = button.GetComponentInChildren<Text>();
-        SetSettingsOpen(IsSettingsOpen);
     }
 
     private Button CreateSmallButton(Transform parent, string name, string label, Font font, Vector2 anchoredPosition, Vector2 size)
@@ -493,9 +436,8 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         var halfH = size.y * 0.5f;
 
         SetRect(_titleText.rectTransform, new Vector2(-halfW + 28f, halfH - 34f), new Vector2(Mathf.Max(120f, size.x - 330f), 36f), new Vector2(0f, 0.5f));
-        SetRect(_stateBadgeText.transform.parent as RectTransform, new Vector2(halfW - 182f, halfH - 34f), new Vector2(92f, 26f), new Vector2(0.5f, 0.5f));
-        SetRect(_pinText.transform.parent as RectTransform, new Vector2(halfW - 91f, halfH - 34f), new Vector2(64f, 28f), new Vector2(0.5f, 0.5f));
-        SetRect(_settingsText.transform.parent as RectTransform, new Vector2(halfW - 34f, halfH - 34f), new Vector2(34f, 28f), new Vector2(0.5f, 0.5f));
+        SetRect(_stateBadgeText.transform.parent as RectTransform, new Vector2(halfW - 142f, halfH - 34f), new Vector2(92f, 26f), new Vector2(0.5f, 0.5f));
+        SetRect(_pinText.transform.parent as RectTransform, new Vector2(halfW - 54f, halfH - 34f), new Vector2(64f, 28f), new Vector2(0.5f, 0.5f));
 
         SetRect(_massChipText.transform.parent as RectTransform, new Vector2(-halfW + 78f, halfH - 76f), new Vector2(126f, 26f), new Vector2(0.5f, 0.5f));
         SetRect(_gravityChipText.transform.parent as RectTransform, new Vector2(-halfW + 210f, halfH - 76f), new Vector2(126f, 26f), new Vector2(0.5f, 0.5f));
@@ -540,7 +482,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         if (_expandedRoot != null)
         {
             var expandedRect = _expandedRoot.transform as RectTransform;
-            SetRect(expandedRect, new Vector2(0f, 0f), new Vector2(size.x - 56f, 124f), new Vector2(0.5f, 0.5f));
+            SetRect(expandedRect, new Vector2(0f, _isExpanded ? -55f : 0f), new Vector2(size.x - 56f, 124f), new Vector2(0.5f, 0.5f));
         }
     }
 
@@ -680,11 +622,6 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
     private void HandlePinClicked()
     {
         PinPressed?.Invoke();
-    }
-
-    private void HandleSettingsClicked()
-    {
-        SettingsPressed?.Invoke();
     }
 
     private void ToggleAdvanced()

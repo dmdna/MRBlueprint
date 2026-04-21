@@ -37,6 +37,15 @@ public class XRDrawerItemSelectionManager : MonoBehaviour
             return false;
         }
 
+        var meshDrawingButton = currentSelected.GetComponentInParent<MXInkMeshDrawerButton>();
+        if (meshDrawingButton != null)
+        {
+            meshDrawingButton.ToggleMeshDrawingMode();
+            ClearSelection();
+            UiMenuSelectSoundHub.TryPlayFromInteraction();
+            return true;
+        }
+
         if (currentSelected.SpawnPrefab == null)
         {
             return false;
