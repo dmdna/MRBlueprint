@@ -1580,6 +1580,8 @@ MonoBehaviour:
   menuWorldScale: 0.0015
   menuCanvasSize: {x: 900, y: 620}
   trackedPlacementFrames: 12
+  menuAmbientClip: {fileID: 8300000, guid: 565b986a456d01e48a4c6ce7c80398da, type: 3}
+  menuAmbientVolume: 0.12
 --- !u!114 &710001003
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1592,8 +1594,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2d3e4f5061728394a5b6c7d8e9f0a01, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::UiMenuSelectSoundHub
-  menuSelectClip: {fileID: 8300000, guid: 3643013a03a014647a33cabe304941ff, type: 3}
+  menuSelectClip: {fileID: 8300000, guid: ef9f737ccaca82247aadf652d6df53b6, type: 3}
   volume: 0.2
+  drawerOpenClip: {fileID: 0}
+  drawerCloseClip: {fileID: 0}
+  deleteObjectClip: {fileID: 0}
+  scissorCutClip: {fileID: 0}
+  clearSceneClip: {fileID: 0}
+  effectVolume: 0.28
   minSecondsBetweenPlays: 0.055
 --- !u!1 &762642781
 GameObject:

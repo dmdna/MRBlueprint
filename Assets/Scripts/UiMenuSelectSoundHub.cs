@@ -5,18 +5,30 @@ using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
-/// Soft menu-style click feedback for uGUI (mouse) and a few explicit call sites (XR / drawer).
+/// Default UI click feedback (dashboard), plus a few dedicated clips (drawer, delete, draw/clear tools).
 /// </summary>
 public sealed class UiMenuSelectSoundHub : MonoBehaviour
 {
+    [Header("Default UI")]
+    [Tooltip("Plays for generic buttons/toggles/dropdowns and explicit TryPlayFromInteraction call sites.")]
     [SerializeField] private AudioClip menuSelectClip;
     [SerializeField, Range(0f, 1f)] private float volume = 0.2f;
+
+    [Header("Dedicated one-shots")]
+    [SerializeField] private AudioClip drawerOpenClip;
+    [SerializeField] private AudioClip drawerCloseClip;
+    [SerializeField] private AudioClip deleteObjectClip;
+    [SerializeField] private AudioClip scissorCutClip;
+    [SerializeField] private AudioClip clearSceneClip;
+    [SerializeField, Range(0f, 1f)] private float effectVolume = 0.28f;
+
     [Tooltip("Avoid double triggers when multiple input paths handle the same click.")]
     [SerializeField] private float minSecondsBetweenPlays = 0.055f;
 
     private AudioSource _audio;
     private float _lastPlayUnscaled = -999f;
     private static UiMenuSelectSoundHub _instance;
+    private static float _suppressDefaultUntilUnscaled = -999f;
     private readonly List<RaycastResult> _raycastScratch = new(16);
 
     private void Awake()
@@ -37,6 +49,14 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
             _instance = null;
     }
 
+    /// <summary>Skips the next default menu clicks (e.g. after drawer open/close so the toolbar button does not also beep).</summary>
+    public static void SuppressDefaultButtonSound(float seconds = 0.14f)
+    {
+        var until = Time.unscaledTime + seconds;
+        if (until > _suppressDefaultUntilUnscaled)
+            _suppressDefaultUntilUnscaled = until;
+    }
+
     /// <summary>XR world UI and other code paths that do not go through mouse raycasts.</summary>
     public static void TryPlayFromInteraction()
     {
@@ -45,12 +65,64 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
         _instance?.TryPlayInternal();
     }
 
+    public static void TryPlayDrawerOpen()
+    {
+        if (_instance == null)
+            _instance = FindFirstObjectByType<UiMenuSelectSoundHub>();
+        _instance?.PlayEffect(_instance.drawerOpenClip);
+    }
+
+    public static void TryPlayDrawerClose()
+    {
+        if (_instance == null)
+            _instance = FindFirstObjectByType<UiMenuSelectSoundHub>();
+        _instance?.PlayEffect(_instance.drawerCloseClip);
+    }
+
+    public static void TryPlayDeleteObject()
+    {
+        SuppressDefaultButtonSound();
+        if (_instance == null)
+            _instance = FindFirstObjectByType<UiMenuSelectSoundHub>();
+        _instance?.PlayEffect(_instance.deleteObjectClip);
+    }
+
+    public static void TryPlayScissorCut()
+    {
+        if (_instance == null)
+            _instance = FindFirstObjectByType<UiMenuSelectSoundHub>();
+        _instance?.PlayEffect(_instance.scissorCutClip);
+    }
+
+    public static void TryPlayClearScene()
+    {
+        if (_instance == null)
+            _instance = FindFirstObjectByType<UiMenuSelectSoundHub>();
+        _instance?.PlayEffect(_instance.clearSceneClip);
+    }
+
+    private void PlayEffect(AudioClip clip)
+    {
+        if (clip == null || _audio == null)
+            return;
+
+        var t = Time.unscaledTime;
+        if (t - _lastPlayUnscaled < minSecondsBetweenPlays)
+            return;
+
+        _lastPlayUnscaled = t;
+        _audio.PlayOneShot(clip, effectVolume);
+    }
+
     private void TryPlayInternal()
     {
         if (menuSelectClip == null || _audio == null)
             return;
 
         var t = Time.unscaledTime;
+        if (t < _suppressDefaultUntilUnscaled)
+            return;
+
         if (t - _lastPlayUnscaled < minSecondsBetweenPlays)
             return;
 

@@ -719,6 +719,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
             return;
         }
 
+        UiMenuSelectSoundHub.TryPlayDeleteObject();
         _drawingTarget.Delete();
     }
 
@@ -805,6 +806,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
             return;
         }
 
+        UiMenuSelectSoundHub.TryPlayDeleteObject();
         _target.Delete();
     }
 

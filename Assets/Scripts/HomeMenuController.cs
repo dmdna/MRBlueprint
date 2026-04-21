@@ -17,6 +17,10 @@ public class HomeMenuController : MonoBehaviour
     [SerializeField] private Vector2 menuCanvasSize = new Vector2(900f, 620f);
     [SerializeField] private int trackedPlacementFrames = 12;
 
+    [Header("Background (HomeMenu scene only)")]
+    [SerializeField] private AudioClip menuAmbientClip;
+    [SerializeField, Range(0f, 1f)] private float menuAmbientVolume = 0.1f;
+
     private GameObject _creditsRoot;
     private Canvas _canvas;
     private RectTransform _canvasRect;
@@ -30,6 +34,33 @@ public class HomeMenuController : MonoBehaviour
         BuildUi();
         _pendingPlacementFrames = Mathf.Max(1, trackedPlacementFrames);
         PositionMenuInFrontOfCamera();
+        StartAmbientIfConfigured();
+    }
+
+    private AudioSource _ambientSource;
+
+    private void OnDestroy()
+    {
+        if (_ambientSource != null)
+        {
+            _ambientSource.Stop();
+        }
+    }
+
+    private void StartAmbientIfConfigured()
+    {
+        if (menuAmbientClip == null)
+            return;
+
+        var ambientGo = new GameObject("MenuAmbientAudio");
+        ambientGo.transform.SetParent(transform, false);
+        _ambientSource = ambientGo.AddComponent<AudioSource>();
+        _ambientSource.clip = menuAmbientClip;
+        _ambientSource.loop = true;
+        _ambientSource.volume = menuAmbientVolume;
+        _ambientSource.spatialBlend = 0f;
+        _ambientSource.playOnAwake = false;
+        _ambientSource.Play();
     }
 
     private void LateUpdate()

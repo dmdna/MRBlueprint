@@ -106,6 +106,9 @@ public class XRContentDrawerController : MonoBehaviour
 
         isOpen = true;
 
+        UiMenuSelectSoundHub.SuppressDefaultButtonSound();
+        UiMenuSelectSoundHub.TryPlayDrawerOpen();
+
         if (panelAnimator != null)
         {
             panelAnimator.Open();
@@ -118,6 +121,9 @@ public class XRContentDrawerController : MonoBehaviour
         {
             return;
         }
+
+        UiMenuSelectSoundHub.SuppressDefaultButtonSound();
+        UiMenuSelectSoundHub.TryPlayDrawerClose();
 
         isOpen = false;
         drawerItemSelection?.ClearSelection();
