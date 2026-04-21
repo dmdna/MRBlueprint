@@ -2372,8 +2372,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2d3e4f5061728394a5b6c7d8e9f0a01, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::UiMenuSelectSoundHub
-  menuSelectClip: {fileID: 8300000, guid: 3643013a03a014647a33cabe304941ff, type: 3}
+  menuSelectClip: {fileID: 8300000, guid: ef9f737ccaca82247aadf652d6df53b6, type: 3}
   volume: 0.2
+  drawerOpenClip: {fileID: 8300000, guid: 4d93c26aea9a7c744affbb49628588b5, type: 3}
+  drawerCloseClip: {fileID: 8300000, guid: 3b6d13f8d75bcee45b737f9eb90b524c, type: 3}
+  deleteObjectClip: {fileID: 8300000, guid: ff3c2423e0236b54c8da23fa64a29a3a, type: 3}
+  scissorCutClip: {fileID: 8300000, guid: ec4c17b194b616b4a8d5829f1c9e15c5, type: 3}
+  clearSceneClip: {fileID: 8300000, guid: b448f68fcb5aba549b7430174c6cb577, type: 3}
+  effectVolume: 0.28
   minSecondsBetweenPlays: 0.055
 --- !u!1 &996677001
 GameObject:

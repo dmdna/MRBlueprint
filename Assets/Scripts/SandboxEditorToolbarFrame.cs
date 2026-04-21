@@ -619,8 +619,9 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         if (SandboxEditorModeState.Current != SandboxEditorSessionMode.Draw)
             return;
 
+        UiMenuSelectSoundHub.SuppressDefaultButtonSound();
         DrawStrokeBridge.TryRemoveLastStroke(FindLineDrawingOrNull());
-        UiMenuSelectSoundHub.TryPlayFromInteraction();
+        UiMenuSelectSoundHub.TryPlayScissorCut();
     }
 
     private void OnDrawClearAllStrokesClicked()
@@ -739,6 +740,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private void OnClearSceneClicked()
     {
+        UiMenuSelectSoundHub.SuppressDefaultButtonSound();
+
         if (_simulation != null && _simulation.IsSimulating)
             _simulation.ExitSimulation();
 
@@ -766,6 +769,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
         if (AssetSelectionManager.Instance != null)
             AssetSelectionManager.Instance.ClearSelection();
+
+        UiMenuSelectSoundHub.TryPlayClearScene();
     }
 
     private void OnHomeClicked()
