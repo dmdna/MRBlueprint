@@ -193,13 +193,11 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             ("Home", "icon_Home", true, OnHomeClicked, "Go to main menu"),
             ("Draw", "icon_Draw", true, OnDrawClicked,
                 "Draw mode — stylus strokes apply to nearby cubes/spheres: flick → impulse, straight line → spring"),
-            ("Undo", "icon_Undo", false, null, "Undo — coming soon"),
             ("Options", "icon_Build", true, OnOptionsClicked, "Options"),
             ("Simulate", "icon_Simulate", true, OnSimulateClicked,
                 "Simulate — run physics with each object’s gravity; exit restores layout from when you started"),
             ("Drawer", "icon_ContentDrawer", true, OnDrawerClicked, "Open or close the content drawer"),
             ("Clear", "icon_Trash", true, OnClearSceneClicked, "Remove all placed objects from the scene"),
-            ("Redo", "icon_Redo", false, null, "Redo — coming soon"),
             ("Help", "icon_Help", true, OnHelpClicked, "Show or hide keyboard / control hints"),
         };
 
