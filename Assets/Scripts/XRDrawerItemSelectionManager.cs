@@ -18,6 +18,7 @@ public class XRDrawerItemSelectionManager : MonoBehaviour
 
         currentSelected = item;
         currentSelected.Select(xrCamera);
+        UiMenuSelectSoundHub.TryPlayFromInteraction();
     }
 
     /// <summary>

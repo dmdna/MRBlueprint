@@ -12,6 +12,11 @@ public class XRDrawerSpawner : MonoBehaviour
     [Tooltip("Used for viewport-center ray; falls back to Camera on xrCamera or Camera.main.")]
     [SerializeField] private Camera placementCamera;
 
+    [Header("Audio")]
+    [Tooltip("One-shot when a drawer item is spawned into the scene.")]
+    [SerializeField] private AudioClip spawnSoundClip;
+    [SerializeField, Range(0f, 1f)] private float spawnSoundVolume = 1f;
+
     [Header("Placement")]
     [SerializeField] private float maxRaycastDistance = 24f;
     [Tooltip("Raycast mask for the sandbox floor (or other valid placement surfaces).")]
@@ -55,6 +60,9 @@ public class XRDrawerSpawner : MonoBehaviour
         var spawnPos = ResolveSpawnPosition();
         var instance = Instantiate(drawerItem.SpawnPrefab, spawnPos, Quaternion.identity);
         instance.SetActive(true);
+
+        if (spawnSoundClip != null)
+            AudioSource.PlayClipAtPoint(spawnSoundClip, spawnPos, spawnSoundVolume);
 
         var templateMarker = instance.GetComponent<SpawnTemplateMarker>();
         if (templateMarker != null)

@@ -368,6 +368,7 @@ public static class WorldSpaceUiRayPointer
         if (state.PointerPress != null && state.PointerPress == clickTarget && eventData.eligibleForClick)
         {
             ExecuteEvents.Execute(state.PointerPress, eventData, ExecuteEvents.pointerClickHandler);
+            UiMenuSelectSoundHub.TryPlayFromInteraction();
         }
 
         if (state.Dragging && state.PointerDrag != null)
