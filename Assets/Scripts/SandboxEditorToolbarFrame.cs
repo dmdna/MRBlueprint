@@ -180,7 +180,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
         hlg.childAlignment = TextAnchor.MiddleCenter;
         hlg.spacing = 6f;
-        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
@@ -278,7 +278,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
         hlg.childAlignment = TextAnchor.MiddleCenter;
         hlg.spacing = 8f;
-        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
@@ -326,7 +326,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
         hlg.childAlignment = TextAnchor.MiddleCenter;
         hlg.spacing = 8f;
-        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
@@ -369,9 +369,13 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     {
         var go = new GameObject(slotId + "Slot");
         go.transform.SetParent(parent, false);
+        var side = Mathf.Max(36f, barHeight - 8f);
         var le = go.AddComponent<LayoutElement>();
-        le.flexibleWidth = 1f;
-        le.minWidth = 48f;
+        le.flexibleWidth = 0f;
+        le.minWidth = side;
+        le.preferredWidth = side;
+        le.minHeight = side;
+        le.preferredHeight = side;
 
         var img = go.AddComponent<Image>();
         img.color = wired
