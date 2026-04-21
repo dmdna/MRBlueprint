@@ -38,6 +38,7 @@ public struct PhysicsLensCollisionEvent
     public bool IsValid;
     public float Time;
     public float ImpulseMagnitude;
+    public float Restitution;
     public Vector3 Point;
     public string PartnerName;
 }

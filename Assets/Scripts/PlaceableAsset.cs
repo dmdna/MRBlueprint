@@ -12,9 +12,10 @@ public class PlaceableAsset : MonoBehaviour
     [Tooltip("Inspector gravity toggle — applied to rigidbody while simulating; in edit mode gravity may be forced off.")]
     [SerializeField] private bool gravityWhenSimulating = true;
     [SerializeField, Range(0f, 1f)] private float friction = 0.5f;
+    [SerializeField, Range(0f, 1f)] private float restitution;
 
     private Collider[] _colliders;
-    private PhysicsMaterial _runtimeFrictionMaterial;
+    private PhysicsMaterial _runtimePhysicsMaterial;
 
     public string AssetDisplayName => assetDisplayName;
     public Rigidbody Rigidbody => rb;
@@ -49,7 +50,7 @@ public class PlaceableAsset : MonoBehaviour
         if (rb != null)
             gravityWhenSimulating = rb.useGravity;
 
-        ApplyFrictionToColliders();
+        ApplyPhysicsMaterialToColliders();
     }
 
     private void Start()
@@ -59,9 +60,9 @@ public class PlaceableAsset : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (_runtimeFrictionMaterial != null)
+        if (_runtimePhysicsMaterial != null)
         {
-            Destroy(_runtimeFrictionMaterial);
+            Destroy(_runtimePhysicsMaterial);
         }
 
         if (AssetSelectionManager.Instance != null && AssetSelectionManager.Instance.SelectedAsset == this)
@@ -254,7 +255,23 @@ public class PlaceableAsset : MonoBehaviour
     public void SetFriction(float value)
     {
         friction = Mathf.Clamp01(value);
-        ApplyFrictionToColliders();
+        ApplyPhysicsMaterialToColliders();
+    }
+
+    public float GetRestitution()
+    {
+        return Mathf.Clamp01(restitution);
+    }
+
+    public float GetRestitutionCoefficient()
+    {
+        return GetRestitution();
+    }
+
+    public void SetRestitution(float value)
+    {
+        restitution = Mathf.Clamp01(value);
+        ApplyPhysicsMaterialToColliders();
     }
 
     private void CacheColliders()
@@ -265,7 +282,7 @@ public class PlaceableAsset : MonoBehaviour
         }
     }
 
-    private void ApplyFrictionToColliders()
+    private void ApplyPhysicsMaterialToColliders()
     {
         CacheColliders();
         if (_colliders == null || _colliders.Length == 0)
@@ -273,15 +290,16 @@ public class PlaceableAsset : MonoBehaviour
             return;
         }
 
-        if (_runtimeFrictionMaterial == null)
+        if (_runtimePhysicsMaterial == null)
         {
-            _runtimeFrictionMaterial = new PhysicsMaterial(name + "_RuntimeFriction");
+            _runtimePhysicsMaterial = new PhysicsMaterial(name + "_RuntimePhysics");
         }
 
-        _runtimeFrictionMaterial.dynamicFriction = GetDynamicFrictionCoefficient();
-        _runtimeFrictionMaterial.staticFriction = GetStaticFrictionCoefficient();
-        _runtimeFrictionMaterial.frictionCombine = PhysicsMaterialCombine.Average;
-        _runtimeFrictionMaterial.bounceCombine = PhysicsMaterialCombine.Average;
+        _runtimePhysicsMaterial.dynamicFriction = GetDynamicFrictionCoefficient();
+        _runtimePhysicsMaterial.staticFriction = GetStaticFrictionCoefficient();
+        _runtimePhysicsMaterial.bounciness = GetRestitutionCoefficient();
+        _runtimePhysicsMaterial.frictionCombine = PhysicsMaterialCombine.Minimum;
+        _runtimePhysicsMaterial.bounceCombine = PhysicsMaterialCombine.Maximum;
 
         for (var i = 0; i < _colliders.Length; i++)
         {
@@ -291,7 +309,7 @@ public class PlaceableAsset : MonoBehaviour
                 continue;
             }
 
-            collider.sharedMaterial = _runtimeFrictionMaterial;
+            collider.sharedMaterial = _runtimePhysicsMaterial;
         }
     }
 

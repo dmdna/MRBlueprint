@@ -9,7 +9,7 @@ using UnityEngine.InputSystem.UI;
 /// </summary>
 public class PlaceableInspectorPanel : MonoBehaviour
 {
-    private static readonly Vector2 ObjectPanelSize = new Vector2(300f, 492f);
+    private static readonly Vector2 ObjectPanelSize = new Vector2(300f, 524f);
     private static readonly Vector2 DrawingPanelSize = new Vector2(300f, 176f);
     private static readonly Color PanelBackground = new Color(0.035f, 0.04f, 0.048f, 0.94f);
     private static readonly Color PanelAccent = new Color(0.22f, 0.62f, 1f, 1f);
@@ -48,6 +48,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private Slider _massSlider;
     private Slider _scaleSlider;
     private Slider _frictionSlider;
+    private Slider _restitutionSlider;
     private Slider _valueSlider;
     private Slider _drawingSpringStiffnessSlider;
     private Slider _drawingHingeTorqueSlider;
@@ -68,6 +69,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
     private Text _massValueLabel;
     private Text _scaleValueLabel;
     private Text _frictionValueLabel;
+    private Text _restitutionValueLabel;
     private Text _drawingSpringStiffnessValueLabel;
     private Text _drawingHingeTorqueValueLabel;
     private Text _drawingImpulseForceValueLabel;
@@ -155,6 +157,8 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _scaleSlider.SetValueWithoutNotify(Mathf.InverseLerp(scaleMin, EffectiveScaleMax, _scaleUniformRef));
         if (_frictionSlider != null)
             _frictionSlider.SetValueWithoutNotify(_target.GetFriction());
+        if (_restitutionSlider != null)
+            _restitutionSlider.SetValueWithoutNotify(_target.GetRestitution());
         Color.RGBToHSV(_target.GetColor(), out _h, out _s, out _v);
         _valueSlider.SetValueWithoutNotify(_v);
         _hueWheel?.SetThumbFromHs(_h, _s);
@@ -295,6 +299,7 @@ public class PlaceableInspectorPanel : MonoBehaviour
         _massSlider = CreateLabeledSliderWithValue(_panelRoot.transform, "Mass", ref y, rowH, gap, OnMassChanged, out _massValueLabel);
         _scaleSlider = CreateLabeledSliderWithValue(_panelRoot.transform, "Scale", ref y, rowH, gap, OnScaleChanged, out _scaleValueLabel);
         _frictionSlider = CreateLabeledSliderWithValue(_panelRoot.transform, "Friction", ref y, rowH, gap, OnFrictionChanged, out _frictionValueLabel);
+        _restitutionSlider = CreateLabeledSliderWithValue(_panelRoot.transform, "Restitution", ref y, rowH, gap, OnRestitutionChanged, out _restitutionValueLabel);
 
         CreateLabel(_panelRoot.transform, "ColorHdr", "Color", 13, ref y, 18f);
         BuildHueSaturationWheel(_panelRoot.transform, ref y, gap);
@@ -384,7 +389,9 @@ public class PlaceableInspectorPanel : MonoBehaviour
 
         if (_canvasRect != null)
         {
-            _canvasRect.sizeDelta = headsetPanelCanvasSize;
+            _canvasRect.sizeDelta = new Vector2(
+                Mathf.Max(headsetPanelCanvasSize.x, ObjectPanelSize.x),
+                Mathf.Max(headsetPanelCanvasSize.y, ObjectPanelSize.y));
             _canvasRect.localPosition = headsetPanelLocalPosition;
             _canvasRect.localRotation = Quaternion.Euler(headsetPanelLocalEuler);
             _canvasRect.localScale = Vector3.one * headsetPanelWorldScale;
@@ -486,6 +493,17 @@ public class PlaceableInspectorPanel : MonoBehaviour
         }
 
         _target.SetFriction(t);
+        RefreshObjectReadouts();
+    }
+
+    private void OnRestitutionChanged(float t)
+    {
+        if (_suppressCallbacks || _target == null)
+        {
+            return;
+        }
+
+        _target.SetRestitution(t);
         RefreshObjectReadouts();
     }
 
@@ -600,6 +618,11 @@ public class PlaceableInspectorPanel : MonoBehaviour
         if (_frictionValueLabel != null)
         {
             _frictionValueLabel.text = "mu " + _target.GetDynamicFrictionCoefficient().ToString("0.00");
+        }
+
+        if (_restitutionValueLabel != null)
+        {
+            _restitutionValueLabel.text = "e " + _target.GetRestitutionCoefficient().ToString("0.00");
         }
     }
 

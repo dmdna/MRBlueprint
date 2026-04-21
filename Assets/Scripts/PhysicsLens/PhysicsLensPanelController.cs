@@ -623,7 +623,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         _expandedValues[7].text = FormatTopLoad(constraint.TopConstraintNameA, constraint.TopConstraintLoadA);
         _expandedValues[8].text = FormatTopLoad(constraint.TopConstraintNameB, constraint.TopConstraintLoadB);
         _expandedValues[9].text = latestImpact.IsValid
-            ? latestImpact.PartnerName + " " + latestImpact.ImpulseMagnitude.ToString("0.0")
+            ? FormatCollisionSummary(latestImpact)
             : "None";
         _expandedValues[10].text = constraint.BreakRatio >= 0f ? (constraint.BreakRatio * 100f).ToString("0") + "%" : "n/a";
 
@@ -641,6 +641,14 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         if (string.IsNullOrEmpty(name) || name == "None")
             return "None";
         return name + " " + load.ToString("0.0");
+    }
+
+    private static string FormatCollisionSummary(PhysicsLensCollisionEvent evt)
+    {
+        var text = evt.PartnerName + " " + evt.ImpulseMagnitude.ToString("0.0") + " N·s";
+        if (evt.Restitution > 0.05f)
+            text += " e " + evt.Restitution.ToString("0.00");
+        return text;
     }
 
     private static string FormatVector(Vector3 v)

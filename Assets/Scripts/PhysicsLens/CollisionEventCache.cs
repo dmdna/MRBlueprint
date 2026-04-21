@@ -75,6 +75,7 @@ public sealed class CollisionEventCache : MonoBehaviour
             IsValid = true,
             Time = Time.time,
             ImpulseMagnitude = impulse,
+            Restitution = ResolveRestitution(collision),
             Point = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position,
             PartnerName = ResolvePartnerName(collision)
         };
@@ -102,5 +103,32 @@ public sealed class CollisionEventCache : MonoBehaviour
             return collision.collider.name;
 
         return "Scene";
+    }
+
+    private float ResolveRestitution(Collision collision)
+    {
+        var restitution = 0f;
+
+        var ownPlaceable = GetComponentInParent<PlaceableAsset>();
+        if (ownPlaceable != null)
+        {
+            restitution = Mathf.Max(restitution, ownPlaceable.GetRestitutionCoefficient());
+        }
+
+        if (collision.rigidbody != null)
+        {
+            var partnerPlaceable = collision.rigidbody.GetComponentInParent<PlaceableAsset>();
+            if (partnerPlaceable != null)
+            {
+                restitution = Mathf.Max(restitution, partnerPlaceable.GetRestitutionCoefficient());
+            }
+        }
+
+        if (collision.collider != null && collision.collider.sharedMaterial != null)
+        {
+            restitution = Mathf.Max(restitution, collision.collider.sharedMaterial.bounciness);
+        }
+
+        return Mathf.Clamp01(restitution);
     }
 }
