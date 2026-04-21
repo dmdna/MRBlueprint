@@ -51,7 +51,7 @@ public class SandboxDrawerHints : MonoBehaviour
         trt.offsetMax = new Vector2(-10f, -8f);
 
         var text = textGo.AddComponent<Text>();
-        text.font = MrBlueprintUiFont.GetDefault();
+        MrBlueprintUiFont.Apply(text);
         text.text = hintText;
         text.fontSize = 15;
         text.color = new Color(0.95f, 0.95f, 0.95f, 1f);

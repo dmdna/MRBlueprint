@@ -236,7 +236,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         le.minWidth = 98f;
 
         var t = go.AddComponent<Text>();
-        t.font = MrBlueprintUiFont.GetDefault();
+        MrBlueprintUiFont.Apply(t);
         t.fontSize = 15;
         t.color = new Color(0.9f, 0.91f, 0.94f, 1f);
         t.alignment = TextAnchor.MiddleLeft;
@@ -437,7 +437,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             var txGo = new GameObject("LabelFallback");
             txGo.transform.SetParent(go.transform, false);
             var t = txGo.AddComponent<Text>();
-            t.font = MrBlueprintUiFont.GetDefault();
+            MrBlueprintUiFont.Apply(t);
             t.text = slotId;
             t.fontSize = wired ? 13 : 12;
             t.color = wired ? Color.white : new Color(1f, 1f, 1f, 0.45f);
@@ -499,7 +499,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         titleRt.anchoredPosition = new Vector2(0f, 142f);
         titleRt.sizeDelta = new Vector2(420f, 34f);
         var title = titleGo.AddComponent<Text>();
-        title.font = font;
+        MrBlueprintUiFont.Apply(title, font);
         title.text = "Options";
         title.fontSize = 20;
         title.color = OptionsTextPrimary;
@@ -592,7 +592,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         var t = go.AddComponent<Text>();
-        t.font = font;
+        MrBlueprintUiFont.Apply(t, font);
         t.text = text;
         t.fontSize = fontSize;
         t.color = OptionsTextPrimary;
@@ -691,7 +691,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var closeTxGo = new GameObject("Text");
         closeTxGo.transform.SetParent(closeGo.transform, false);
         var closeTx = closeTxGo.AddComponent<Text>();
-        closeTx.font = MrBlueprintUiFont.GetDefault();
+        MrBlueprintUiFont.Apply(closeTx);
         closeTx.text = "Close";
         closeTx.fontSize = 14;
         closeTx.color = Color.white;

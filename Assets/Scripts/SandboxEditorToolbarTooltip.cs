@@ -38,7 +38,7 @@ public sealed class SandboxEditorToolbarTooltipHost : MonoBehaviour
         trt.offsetMax = new Vector2(-10f, -8f);
 
         _text = textGo.AddComponent<Text>();
-        _text.font = MrBlueprintUiFont.GetDefault();
+        MrBlueprintUiFont.Apply(_text);
         _text.fontSize = 14;
         _text.color = new Color(0.95f, 0.95f, 0.97f, 1f);
         _text.alignment = TextAnchor.MiddleCenter;

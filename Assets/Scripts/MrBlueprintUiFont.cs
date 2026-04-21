@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 /// <summary>
 /// Default UI font for legacy <see cref="UnityEngine.UI.Text"/> (ZT Nature). Editor loads from <c>Assets/Fonts</c>;
@@ -29,5 +31,47 @@ public static class MrBlueprintUiFont
         }
 
         return _cached;
+    }
+
+    public static void Apply(Text text)
+    {
+        Apply(text, null);
+    }
+
+    public static void Apply(Text text, Font preferredFont)
+    {
+        if (text == null)
+            return;
+
+        text.font = preferredFont != null ? preferredFont : GetDefault();
+    }
+
+    public static int ApplyToLoadedText()
+    {
+        var texts = Object.FindObjectsByType<Text>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        var count = 0;
+        foreach (var text in texts)
+        {
+            if (text == null)
+                continue;
+
+            Apply(text);
+            count++;
+        }
+
+        return count;
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void InstallSceneFontHook()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+        SceneManager.sceneLoaded += OnSceneLoaded;
+        ApplyToLoadedText();
+    }
+
+    private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        ApplyToLoadedText();
     }
 }

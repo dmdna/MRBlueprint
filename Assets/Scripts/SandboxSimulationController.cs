@@ -198,6 +198,21 @@ public sealed class SandboxSimulationController : MonoBehaviour
         }
 
         Physics.SyncTransforms();
+        RefreshDrawingAttachmentVisuals();
+    }
+
+    private static void RefreshDrawingAttachmentVisuals()
+    {
+        var drawings = FindObjectsByType<PhysicsDrawingSelectable>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        for (var i = 0; i < drawings.Length; i++)
+        {
+            if (drawings[i] != null)
+            {
+                drawings[i].RefreshAttachmentVisualState();
+            }
+        }
     }
 
     private void Notify() => StateChanged?.Invoke();

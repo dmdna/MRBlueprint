@@ -52,7 +52,7 @@ public static class PhysicsLensRenderUtility
         rect.sizeDelta = sizeDelta;
 
         var text = go.AddComponent<Text>();
-        text.font = font != null ? font : MrBlueprintUiFont.GetDefault();
+        MrBlueprintUiFont.Apply(text, font);
         text.fontSize = size;
         text.alignment = alignment;
         text.color = color;

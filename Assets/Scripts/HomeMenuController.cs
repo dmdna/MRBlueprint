@@ -340,7 +340,7 @@ public class HomeMenuController : MonoBehaviour
         var titleGo = new GameObject("TitleFallback");
         titleGo.transform.SetParent(canvas, false);
         var title = titleGo.AddComponent<Text>();
-        title.font = font;
+        MrBlueprintUiFont.Apply(title, font);
         title.fontSize = 48;
         title.fontStyle = FontStyle.Bold;
         title.color = Color.white;
@@ -440,7 +440,7 @@ public class HomeMenuController : MonoBehaviour
         var textGo = new GameObject("Text");
         textGo.transform.SetParent(go.transform, false);
         var t = textGo.AddComponent<Text>();
-        t.font = font;
+        MrBlueprintUiFont.Apply(t, font);
         t.fontSize = 22;
         t.color = Color.white;
         t.text = label;
@@ -480,7 +480,7 @@ public class HomeMenuController : MonoBehaviour
         var bodyGo = new GameObject("Body");
         bodyGo.transform.SetParent(box.transform, false);
         var body = bodyGo.AddComponent<Text>();
-        body.font = font;
+        MrBlueprintUiFont.Apply(body, font);
         body.fontSize = 20;
         body.color = new Color(0.9f, 0.9f, 0.92f);
         body.text = CreditsBodyText;

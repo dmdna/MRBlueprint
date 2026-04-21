@@ -882,6 +882,11 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return true;
     }
 
+    public void RefreshAttachmentVisualState()
+    {
+        RefreshAttachmentVisual();
+    }
+
     public void Delete()
     {
         if (AssetSelectionManager.Instance != null
