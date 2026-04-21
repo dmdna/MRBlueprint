@@ -9,7 +9,8 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class UiMenuSelectSoundHub : MonoBehaviour
 {
-    private const string SoundEffectsMutedPrefsKey = "MRBlueprint.SoundEffectsMuted";
+    /// <summary>Previously used to persist mute; removed so each app launch starts with sound enabled.</summary>
+    private const string LegacySoundEffectsMutedPrefsKey = "MRBlueprint.SoundEffectsMuted";
 
     [Header("Default UI")]
     [Tooltip("Plays for generic buttons/toggles/dropdowns and explicit TryPlayFromInteraction call sites.")]
@@ -53,8 +54,6 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
         }
 
         _soundEffectsMuted = muted;
-        PlayerPrefs.SetInt(SoundEffectsMutedPrefsKey, muted ? 1 : 0);
-        PlayerPrefs.Save();
 
         if (muted && _instance != null && _instance._audio != null)
         {
@@ -69,7 +68,10 @@ public sealed class UiMenuSelectSoundHub : MonoBehaviour
             return;
         }
 
-        _soundEffectsMuted = PlayerPrefs.GetInt(SoundEffectsMutedPrefsKey, 0) != 0;
+        _soundEffectsMuted = false;
+        if (PlayerPrefs.HasKey(LegacySoundEffectsMutedPrefsKey))
+            PlayerPrefs.DeleteKey(LegacySoundEffectsMutedPrefsKey);
+
         _mutePreferenceLoaded = true;
     }
 
