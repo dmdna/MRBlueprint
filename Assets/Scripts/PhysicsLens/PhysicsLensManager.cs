@@ -16,7 +16,6 @@ public sealed class PhysicsLensManager : MonoBehaviour
     private float _nextTextRefreshTime;
     private bool _selectionSubscribed;
     private bool _simulationSubscribed;
-    private bool _settingsVisible = true;
 
     public static bool RuntimeAvailable { get; private set; }
 
@@ -72,7 +71,6 @@ public sealed class PhysicsLensManager : MonoBehaviour
         if (_panel != null)
         {
             _panel.PinPressed -= OnPanelPinPressed;
-            _panel.SettingsPressed -= OnPanelSettingsPressed;
         }
 
         if (_settingsPanel != null)
@@ -139,7 +137,7 @@ public sealed class PhysicsLensManager : MonoBehaviour
         if (camera == null)
             return;
 
-        _panel.UpdateFollow(camera, _targetRigidbody.worldCenterOfMass, _tracker.ApproxBounds);
+        _panel.UpdatePinnedPose(camera, _targetRigidbody.worldCenterOfMass);
         _panel.RenderGraph(_tracker);
         UpdateSettingsDock(camera);
     }
@@ -154,7 +152,6 @@ public sealed class PhysicsLensManager : MonoBehaviour
         _panel = panelGo.AddComponent<PhysicsLensPanelController>();
         _panel.Initialize(config);
         _panel.PinPressed += OnPanelPinPressed;
-        _panel.SettingsPressed += OnPanelSettingsPressed;
     }
 
     private void ResolveDependencies()
@@ -266,18 +263,16 @@ public sealed class PhysicsLensManager : MonoBehaviour
 
         _targetAsset = asset;
         _targetRigidbody = rb;
-        _settingsVisible = true;
         _tracker.Configure(asset, rb, config);
         _tracker.Sample(Time.fixedDeltaTime);
         _panel.SetExpanded(expanded, expanded);
-        _panel.SetSettingsOpen(_settingsVisible);
         _panel.SetOpen(true, false);
         _panel.UpdateTelemetry(_tracker);
         _nextTextRefreshTime = 0f;
 
         var camera = ResolveActiveCamera();
         if (camera != null)
-            _panel.UpdateFollow(camera, rb.worldCenterOfMass, _tracker.ApproxBounds);
+            _panel.UpdatePinnedPose(camera, rb.worldCenterOfMass);
     }
 
     private void CloseLens()
@@ -301,20 +296,6 @@ public sealed class PhysicsLensManager : MonoBehaviour
         var next = !_panel.IsExpanded || !_panel.IsPinned;
         _panel.SetExpanded(next, next);
         _panel.UpdateTelemetry(_tracker);
-    }
-
-    private void OnPanelSettingsPressed()
-    {
-        _settingsVisible = !_settingsVisible;
-        if (_panel != null)
-        {
-            _panel.SetSettingsOpen(_settingsVisible);
-        }
-
-        if (_settingsPanel != null)
-        {
-            _settingsPanel.SetPhysicsLensSettingsVisible(_settingsVisible);
-        }
     }
 
     private void UpdateSettingsDock(Camera camera)
@@ -342,7 +323,7 @@ public sealed class PhysicsLensManager : MonoBehaviour
             return;
         }
 
-        _settingsPanel.DockToPhysicsLens(camera, position, rotation, scale, _settingsVisible);
+        _settingsPanel.DockToPhysicsLens(camera, position, rotation, scale, true);
     }
 
     private bool IsInSimulateMode()

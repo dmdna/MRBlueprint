@@ -28,6 +28,13 @@ public class XRDrawerItem : MonoBehaviour
 
     public void SetSpawnPrefab(GameObject prefab) => spawnPrefab = prefab;
 
+    public void SetIdleAnimation(float amplitude, float speed, float rotateSpeed)
+    {
+        floatAmplitude = Mathf.Max(0f, amplitude);
+        floatSpeed = Mathf.Max(0f, speed);
+        idleRotateSpeed = rotateSpeed;
+    }
+
     /// <summary>Call when parent layout changes local transform so idle animation does not snap tiles to origin.</summary>
     public void SyncRestPoseFromTransform()
     {

@@ -7,7 +7,8 @@ using UnityEngine.UI;
 /// </summary>
 public class DrawerTilePickTarget : MonoBehaviour
 {
-    [SerializeField] private string caption = "Cube";
+    [SerializeField] private string caption = string.Empty;
+    [SerializeField] private bool showCaption;
 
     /// <summary>Assign before <see cref="Start"/> when building drawer tiles from code.</summary>
     public void SetCaptionForRuntime(string value) => caption = value ?? string.Empty;
@@ -16,7 +17,13 @@ public class DrawerTilePickTarget : MonoBehaviour
 
     private void Start()
     {
-        if (string.IsNullOrWhiteSpace(caption))
+        var existingCaption = transform.Find("TileCaption");
+        if (existingCaption != null)
+        {
+            Destroy(existingCaption.gameObject);
+        }
+
+        if (!showCaption || string.IsNullOrWhiteSpace(caption))
         {
             return;
         }

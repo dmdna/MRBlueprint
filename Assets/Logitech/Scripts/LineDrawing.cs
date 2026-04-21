@@ -433,6 +433,12 @@ public class LineDrawing : MonoBehaviour
             return;
         }
 
+        if (MeshDrawingModeState.IsActive)
+        {
+            SuspendDrawingForEditMode();
+            return;
+        }
+
         float analogInput = Mathf.Max(_stylusHandler.CurrentState.tip_value, _stylusHandler.CurrentState.cluster_middle_value);
         var canDrawNow = analogInput > 0f && _stylusHandler.CanDraw();
 
