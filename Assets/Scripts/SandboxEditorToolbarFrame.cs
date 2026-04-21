@@ -167,7 +167,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         ConfigureToolbarBarRect(barRt, 0);
 
         var barBg = bar.AddComponent<Image>();
-        barBg.color = new Color(0.06f, 0.07f, 0.1f, 0.88f);
+        barBg.color = new Color32(0x00, 0x00, 0x00, 0xE0);
 
         var row = new GameObject("ToolbarRow");
         row.transform.SetParent(bar.transform, false);
@@ -180,7 +180,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
         hlg.childAlignment = TextAnchor.MiddleCenter;
         hlg.spacing = 6f;
-        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
@@ -265,7 +265,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         ConfigureToolbarBarRect(simBarRt, toolbarAtBottom ? 0 : 1);
 
         var simBarBg = _simToolbarBar.AddComponent<Image>();
-        simBarBg.color = new Color(0.07f, 0.09f, 0.14f, 0.92f);
+        simBarBg.color = new Color32(0x00, 0x00, 0x00, 0xE0);
 
         var row = new GameObject("SimToolbarRow");
         row.transform.SetParent(_simToolbarBar.transform, false);
@@ -278,7 +278,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
         hlg.childAlignment = TextAnchor.MiddleCenter;
         hlg.spacing = 8f;
-        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
@@ -313,7 +313,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         ConfigureToolbarBarRect(drawBarRt, 0);
 
         var drawBarBg = _drawToolbarBar.AddComponent<Image>();
-        drawBarBg.color = new Color(0.08f, 0.1f, 0.14f, 0.93f);
+        drawBarBg.color = new Color32(0x00, 0x00, 0x00, 0xE0);
 
         var row = new GameObject("DrawToolbarRow");
         row.transform.SetParent(_drawToolbarBar.transform, false);
@@ -326,7 +326,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
         hlg.childAlignment = TextAnchor.MiddleCenter;
         hlg.spacing = 8f;
-        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
@@ -369,14 +369,18 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     {
         var go = new GameObject(slotId + "Slot");
         go.transform.SetParent(parent, false);
+        var side = Mathf.Max(36f, barHeight - 8f);
         var le = go.AddComponent<LayoutElement>();
-        le.flexibleWidth = 1f;
-        le.minWidth = 48f;
+        le.flexibleWidth = 0f;
+        le.minWidth = side;
+        le.preferredWidth = side;
+        le.minHeight = side;
+        le.preferredHeight = side;
 
         var img = go.AddComponent<Image>();
         img.color = wired
-            ? new Color(0.22f, 0.35f, 0.52f, 0.95f)
-            : new Color(0.18f, 0.18f, 0.22f, 0.65f);
+            ? new Color32(0x11, 0x1F, 0x2B, 0xF2)
+            : new Color32(0x11, 0x1F, 0x2B, 0xA6);
 
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
