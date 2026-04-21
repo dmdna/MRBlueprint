@@ -34,6 +34,7 @@ public class XRContentDrawerController : MonoBehaviour
     private bool _drawerRenderingConfigured;
 
     public bool IsOpen => isOpen;
+    public Transform DrawerRoot => drawerRoot;
     public XRControlMode CurrentMode =>
         SandboxEditorModeState.Current == SandboxEditorSessionMode.Draw
             ? XRControlMode.Drawing
@@ -120,6 +121,11 @@ public class XRContentDrawerController : MonoBehaviour
         if (!isOpen)
         {
             return;
+        }
+
+        if (MeshDrawingModeState.IsActive)
+        {
+            MeshDrawingModeState.SetActive(false);
         }
 
         UiMenuSelectSoundHub.SuppressDefaultButtonSound();

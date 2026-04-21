@@ -20,9 +20,12 @@ public sealed class PhysicsLensConfig : ScriptableObject
     [SerializeField] private float potentialZeroPlaneY;
 
     [Header("Panel")]
-    [SerializeField] private Vector2 compactPanelSize = new Vector2(430f, 520f);
-    [SerializeField] private Vector2 expandedPanelSize = new Vector2(560f, 700f);
-    [SerializeField] private float canvasWorldScale = 0.00165f;
+    [SerializeField] private Vector2 compactPanelSize = new Vector2(400f, 480f);
+    [SerializeField] private Vector2 expandedPanelSize = new Vector2(520f, 620f);
+    [SerializeField] private float canvasWorldScale = 0.0012f;
+    [SerializeField] private Vector3 viewPinnedLocalPosition = new Vector3(-0.31f, 0f, 1.15f);
+    [SerializeField] private Vector3 viewPinnedLocalEuler = Vector3.zero;
+    [SerializeField] private float settingsDockGap = 14f;
     [SerializeField] private float panelFollowSharpness = 13f;
     [SerializeField] private float panelRotationSharpness = 15f;
     [SerializeField] private float panelHorizontalOffset = 0.38f;
@@ -32,8 +35,8 @@ public sealed class PhysicsLensConfig : ScriptableObject
     [SerializeField] private float minObjectClearance = 0.22f;
 
     [Header("Graph")]
-    [SerializeField] private Vector2 compactGraphSize = new Vector2(374f, 176f);
-    [SerializeField] private Vector2 expandedGraphSize = new Vector2(494f, 252f);
+    [SerializeField] private Vector2 compactGraphSize = new Vector2(344f, 150f);
+    [SerializeField] private Vector2 expandedGraphSize = new Vector2(454f, 168f);
     [SerializeField] private float graphAutoscaleSharpness = 5f;
     [SerializeField] private float timelineBaseWidth = 4f;
     [SerializeField] private float timelineForceWidth = 8f;
@@ -72,6 +75,9 @@ public sealed class PhysicsLensConfig : ScriptableObject
     public Vector2 CompactPanelSize => compactPanelSize;
     public Vector2 ExpandedPanelSize => expandedPanelSize;
     public float CanvasWorldScale => Mathf.Clamp(canvasWorldScale, 0.0005f, 0.006f);
+    public Vector3 ViewPinnedLocalPosition => viewPinnedLocalPosition;
+    public Vector3 ViewPinnedLocalEuler => viewPinnedLocalEuler;
+    public float SettingsDockGap => Mathf.Max(4f, settingsDockGap);
     public float PanelFollowSharpness => Mathf.Max(0.01f, panelFollowSharpness);
     public float PanelRotationSharpness => Mathf.Max(0.01f, panelRotationSharpness);
     public float PanelHorizontalOffset => Mathf.Max(0.05f, panelHorizontalOffset);

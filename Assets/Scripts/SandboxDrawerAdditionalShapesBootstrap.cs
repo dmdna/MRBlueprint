@@ -74,7 +74,7 @@ public sealed class SandboxDrawerAdditionalShapesBootstrap : MonoBehaviour
         sc.radius = 0.5f;
 
         var pick = model.AddComponent<DrawerTilePickTarget>();
-        pick.SetCaptionForRuntime(PlaceableRuntimeFactory.GetShapeDisplayName(kind));
+        pick.SetCaptionForRuntime(string.Empty);
 
         return root;
     }

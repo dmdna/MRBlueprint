@@ -538,7 +538,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             && pointerState.HoveredDrawingEndpoint == null
             && IsEditMode())
         {
-            drawerItemUnderRay = TrySelectDrawerItemUnderRay();
+            drawerItemUnderRay = TrySelectDrawerItemUnderRay(clusterBackPressed && !_clusterBackWasPressed);
         }
 
         if (clusterBackPressed && !_clusterBackWasPressed && !uiHandled)
@@ -766,7 +766,7 @@ public class MXInkRayInteractorBinder : MonoBehaviour
         return !_hideWhenStylusInactive || _stylusHandler == null || _stylusHandler.IsTrackingStylus;
     }
 
-    private bool TrySelectDrawerItemUnderRay()
+    private bool TrySelectDrawerItemUnderRay(bool activateMeshDrawingButton)
     {
         if (_runtimeRayOrigin == null || _drawerItemSelection == null)
         {
@@ -798,6 +798,12 @@ public class MXInkRayInteractorBinder : MonoBehaviour
             if (drawerItem == null)
             {
                 continue;
+            }
+
+            if (drawerItem.GetComponentInParent<MXInkMeshDrawerButton>() != null
+                && !activateMeshDrawingButton)
+            {
+                return true;
             }
 
             _drawerItemSelection.SelectItem(drawerItem);
