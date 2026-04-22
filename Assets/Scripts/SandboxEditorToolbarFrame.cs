@@ -53,6 +53,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     private Texture2D _texResume;
     private SandboxSimulationController _simulation;
     private Text _sessionModeLabelText;
+    private MRSettingsController _mrSettingsController;
+    private MRSettingsUI _mrSettingsUI;
 
     private void Start()
     {
@@ -65,6 +67,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>();
         if (drawerHints == null)
             drawerHints = FindFirstObjectByType<SandboxDrawerHints>();
+
+        EnsureMRSettingsController();
 
         _simulation = GetComponent<SandboxSimulationController>();
         if (_simulation == null)
@@ -91,6 +95,12 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
         if (_simulation != null)
             _simulation.StateChanged -= OnSimulationStateChanged;
+
+        if (_mrSettingsController != null)
+        {
+            _mrSettingsController.StateChanged -= OnMRSettingsStateChanged;
+            _mrSettingsController.RequestOpenSettings -= OnMRSettingsOpenRequested;
+        }
 
         if (_canvasRoot != null)
             Destroy(_canvasRoot);
@@ -120,6 +130,19 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var esGo = new GameObject("EventSystem");
         esGo.AddComponent<EventSystem>();
         esGo.AddComponent<InputSystemUIInputModule>();
+    }
+
+    private void EnsureMRSettingsController()
+    {
+        if (_mrSettingsController == null)
+            _mrSettingsController = FindFirstObjectByType<MRSettingsController>(FindObjectsInactive.Include);
+        if (_mrSettingsController == null)
+            _mrSettingsController = gameObject.AddComponent<MRSettingsController>();
+
+        _mrSettingsController.StateChanged -= OnMRSettingsStateChanged;
+        _mrSettingsController.StateChanged += OnMRSettingsStateChanged;
+        _mrSettingsController.RequestOpenSettings -= OnMRSettingsOpenRequested;
+        _mrSettingsController.RequestOpenSettings += OnMRSettingsOpenRequested;
     }
 
     private void BuildUi()
@@ -484,7 +507,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         prt.anchorMax = new Vector2(0.5f, 0.5f);
         prt.pivot = new Vector2(0.5f, 0.5f);
         prt.anchoredPosition = Vector2.zero;
-        prt.sizeDelta = new Vector2(460f, 360f);
+        prt.sizeDelta = new Vector2(460f, 410f);
 
         var pbg = panel.AddComponent<Image>();
         pbg.color = OptionsPanelBackground;
@@ -496,7 +519,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         titleRt.anchorMin = new Vector2(0.5f, 0.5f);
         titleRt.anchorMax = new Vector2(0.5f, 0.5f);
         titleRt.pivot = new Vector2(0.5f, 0.5f);
-        titleRt.anchoredPosition = new Vector2(0f, 142f);
+        titleRt.anchoredPosition = new Vector2(0f, 166f);
         titleRt.sizeDelta = new Vector2(300f, 34f);
         var title = titleGo.AddComponent<Text>();
         MrBlueprintUiFont.Apply(title, font);
@@ -506,37 +529,44 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         title.alignment = TextAnchor.MiddleLeft;
         title.raycastTarget = false;
 
-        CreateOptionsAccentRule(panel.transform, new Vector2(0f, 116f), 300f);
+        CreateOptionsAccentRule(panel.transform, new Vector2(0f, 132f), 300f);
 
-        _soundEffectsMuteToggle = CreateOptionsMuteToggle(panel.transform, font, new Vector2(0f, 78f));
+        _soundEffectsMuteToggle = CreateOptionsMuteToggle(panel.transform, font, new Vector2(0f, 102f));
         _soundEffectsMuteToggle.SetIsOnWithoutNotify(UiMenuSelectSoundHub.SoundEffectsMuted);
 
         HomeMenuController.CreateMenuButton(
             panel.transform,
             font,
+            "MR Settings",
+            new Vector2(0f, 51f),
+            new Vector2(280f, 42f),
+            ShowMRSettings);
+        HomeMenuController.CreateMenuButton(
+            panel.transform,
+            font,
             "Credits",
-            new Vector2(0f, 27f),
+            new Vector2(0f, 0f),
             new Vector2(280f, 42f),
             ShowOptionsCredits);
         HomeMenuController.CreateMenuButton(
             panel.transform,
             font,
             "Exit to Home Menu",
-            new Vector2(0f, -27f),
+            new Vector2(0f, -51f),
             new Vector2(280f, 42f),
             OnHomeClicked);
         HomeMenuController.CreateMenuButton(
             panel.transform,
             font,
             "Quit App",
-            new Vector2(0f, -81f),
+            new Vector2(0f, -102f),
             new Vector2(280f, 42f),
             OnQuitAppClicked);
         HomeMenuController.CreateMenuButton(
             panel.transform,
             font,
             "Close",
-            new Vector2(0f, -140f),
+            new Vector2(0f, -164f),
             new Vector2(170f, 36f),
             () => SetOptionsVisible(false));
 
@@ -557,6 +587,10 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             font,
             HideOptionsCredits);
         _optionsCreditsRoot.SetActive(false);
+
+        _mrSettingsUI = _optionsOverlayRoot.AddComponent<MRSettingsUI>();
+        _mrSettingsUI.Build(_optionsOverlayRoot.transform, font, _mrSettingsController, HideMRSettings,
+            () => SetOptionsVisible(false));
 
         _optionsOverlayRoot.SetActive(false);
     }
@@ -871,7 +905,11 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             if (visible)
                 RefreshOptionsControls();
             else
+            {
                 SetOptionsCreditsVisible(false);
+                if (_mrSettingsUI != null)
+                    _mrSettingsUI.SetVisible(false);
+            }
 
             _optionsOverlayRoot.SetActive(visible);
         }
@@ -881,6 +919,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     {
         if (_soundEffectsMuteToggle != null)
             _soundEffectsMuteToggle.SetIsOnWithoutNotify(UiMenuSelectSoundHub.SoundEffectsMuted);
+        if (_mrSettingsUI != null)
+            _mrSettingsUI.RefreshFromController();
     }
 
     private void SetOptionsCreditsVisible(bool visible)
@@ -891,12 +931,40 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private void ShowOptionsCredits()
     {
+        if (_mrSettingsUI != null)
+            _mrSettingsUI.SetVisible(false);
         SetOptionsCreditsVisible(true);
     }
 
     private void HideOptionsCredits()
     {
         SetOptionsCreditsVisible(false);
+    }
+
+    private void ShowMRSettings()
+    {
+        SetOptionsCreditsVisible(false);
+        if (_mrSettingsUI != null)
+            _mrSettingsUI.SetVisible(true);
+    }
+
+    private void HideMRSettings()
+    {
+        if (_mrSettingsUI != null)
+            _mrSettingsUI.SetVisible(false);
+    }
+
+    private void OnMRSettingsStateChanged()
+    {
+        if (_mrSettingsUI != null)
+            _mrSettingsUI.RefreshFromController();
+    }
+
+    private void OnMRSettingsOpenRequested()
+    {
+        SetToolbarVisible(true);
+        SetOptionsVisible(true);
+        ShowMRSettings();
     }
 
     private void OnSoundEffectsMuteChanged(bool muted)

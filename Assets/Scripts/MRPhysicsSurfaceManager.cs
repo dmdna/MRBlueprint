@@ -40,8 +40,30 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
     private Material _fallbackFloorMaterial;
     private PhysicsMaterial _surfacePhysicsMaterial;
     private int _physicsSurfaceLayer;
+    private bool _effectMeshesEnabled = true;
+    private bool _effectMeshCollidersEnabled = true;
+    private bool _effectMeshVisible = true;
+    private bool _fallbackFloorForcedVisible;
+    private bool _fallbackFloorRendererVisible = true;
 
     public float FallbackFloorY => fallbackFloorY;
+
+    public void ApplyMRSettingsSurfaceMode(
+        bool effectMeshesEnabled,
+        bool effectMeshCollidersEnabled,
+        bool effectMeshVisible,
+        bool forceFallbackFloor,
+        bool fallbackFloorVisible)
+    {
+        _effectMeshesEnabled = effectMeshesEnabled;
+        _effectMeshCollidersEnabled = effectMeshCollidersEnabled;
+        _effectMeshVisible = effectMeshVisible;
+        _fallbackFloorForcedVisible = forceFallbackFloor;
+        _fallbackFloorRendererVisible = fallbackFloorVisible;
+
+        ConfigureEffectMeshes();
+        RefreshFallbackFloorVisibility();
+    }
 
     private void Awake()
     {
@@ -137,21 +159,32 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
                 continue;
             }
 
+            if (!_effectMeshesEnabled)
+            {
+                if (effectMesh.gameObject.activeSelf)
+                {
+                    effectMesh.gameObject.SetActive(false);
+                }
+
+                continue;
+            }
+
             if (activateEffectMeshObjects && !effectMesh.gameObject.activeSelf)
             {
                 effectMesh.gameObject.SetActive(true);
             }
 
             effectMesh.Layer = _physicsSurfaceLayer;
+            effectMesh.HideMesh = !_effectMeshVisible;
 
-            if (enableEffectMeshColliders && !effectMesh.Colliders)
+            if (enableEffectMeshColliders && _effectMeshCollidersEnabled && !effectMesh.Colliders)
             {
                 effectMesh.Colliders = true;
             }
 
             if (effectMesh.isActiveAndEnabled && enableEffectMeshColliders)
             {
-                effectMesh.ToggleEffectMeshColliders(true);
+                effectMesh.ToggleEffectMeshColliders(_effectMeshCollidersEnabled);
             }
 
             foreach (var generated in effectMesh.EffectMeshObjects.Values)
@@ -159,11 +192,17 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
                 if (generated?.effectMeshGO != null)
                 {
                     generated.effectMeshGO.layer = _physicsSurfaceLayer;
-                    ConfigureEffectMeshRenderer(generated.effectMeshGO.GetComponent<Renderer>());
+                    var renderer = generated.effectMeshGO.GetComponent<Renderer>();
+                    ConfigureEffectMeshRenderer(renderer);
+                    if (renderer != null)
+                    {
+                        renderer.enabled = _effectMeshVisible;
+                    }
                 }
 
                 if (generated?.collider != null)
                 {
+                    generated.collider.enabled = _effectMeshCollidersEnabled;
                     ConfigureSurfaceCollider(generated.collider);
                 }
             }
@@ -279,10 +318,15 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
         }
 
         EnsureFallbackFloor();
-        var shouldShowFallback = !HasEffectMeshCollider();
+        var shouldShowFallback = _fallbackFloorForcedVisible || !HasEffectMeshCollider();
         if (_fallbackFloor.activeSelf != shouldShowFallback)
         {
             _fallbackFloor.SetActive(shouldShowFallback);
+        }
+
+        if (_fallbackFloorRenderer != null)
+        {
+            _fallbackFloorRenderer.enabled = shouldShowFallback && _fallbackFloorRendererVisible;
         }
     }
 
