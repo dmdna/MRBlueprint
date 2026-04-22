@@ -14,7 +14,6 @@ public sealed class MeshSketchController : MonoBehaviour
     [SerializeField] private bool featureEnabled = true;
     [SerializeField] private MXInkInputAdapter inputAdapter;
     [SerializeField] private XRContentDrawerController contentDrawer;
-    [SerializeField] private bool keepOpenChainsAsConstructionEdges = true;
 
     [Header("Pointer Over UI")]
     [SerializeField] private string uiCanvasNames = "PlaceableInspectorCanvas;SandboxEditorToolbarCanvas;HomeMenuCanvas";
@@ -40,6 +39,8 @@ public sealed class MeshSketchController : MonoBehaviour
     private float _nextReferenceResolveTime;
     private float _nextUiCanvasScanTime;
     private MeshSketchResolveResult _lastPreview;
+    private bool _rearUndoWasPressed;
+    private bool _hasUndoableInvalidSketch;
 
     public bool CanAuthorMesh => featureEnabled
                                  && MeshDrawingModeState.IsActive
@@ -67,13 +68,17 @@ public sealed class MeshSketchController : MonoBehaviour
         }
 
         SceneManager.sceneLoaded += OnSceneLoaded;
+        MeshDrawingModeState.ActiveChanged -= OnMeshDrawingModeChanged;
+        MeshDrawingModeState.ActiveChanged += OnMeshDrawingModeChanged;
     }
 
     private void OnDisable()
     {
         Controllers.Remove(this);
         SceneManager.sceneLoaded -= OnSceneLoaded;
+        MeshDrawingModeState.ActiveChanged -= OnMeshDrawingModeChanged;
         CancelSketch(false);
+        ClearInvalidSketchFeedback();
     }
 
     public void Configure(MXInkInputAdapter adapter, XRContentDrawerController drawer)
@@ -131,11 +136,24 @@ public sealed class MeshSketchController : MonoBehaviour
         if (inputAdapter == null || !featureEnabled)
         {
             CancelSketch(false);
+            ClearInvalidSketchFeedback();
+            _rearUndoWasPressed = false;
             return;
         }
 
         inputAdapter.ResolveStylus();
         var middlePressed = inputAdapter.MiddleButtonPressed;
+        var rearUndoPressed = IsRearUndoPressed();
+        if (MeshDrawingModeState.IsActive
+            && rearUndoPressed
+            && !_rearUndoWasPressed
+            && TryUndoLastMeshElement())
+        {
+            _rearUndoWasPressed = rearUndoPressed;
+            return;
+        }
+
+        _rearUndoWasPressed = rearUndoPressed;
 
         if (_reservedUntilMiddleRelease)
         {
@@ -204,6 +222,8 @@ public sealed class MeshSketchController : MonoBehaviour
 
     private void BeginSketch()
     {
+        ClearInvalidSketchFeedback();
+        MXInkEditableMeshTopology.DeleteInvalidTopologies();
         settings.Clamp();
         _state = MeshSketchState.Sketching;
         _strokeCapture.Begin(inputAdapter.TipPose.position);
@@ -255,29 +275,9 @@ public sealed class MeshSketchController : MonoBehaviour
             {
                 MXInkMeshUndoIntegration.Instance.RecordTopologyEdit(topology, before, createdTopology);
                 AssetSelectionManager.Instance?.SelectAsset(topology.GetComponent<PlaceableAsset>());
+                _hasUndoableInvalidSketch = false;
                 EndSketchSession();
                 return;
-            }
-        }
-        else if (!closurePreview && keepOpenChainsAsConstructionEdges)
-        {
-            var openChain = _loopResolver.ResolveOpenChain(_snappedPoints, settings);
-            if (openChain.IsValidOpenChain)
-            {
-                var topology = _faceBuilder.CommitOpenChain(
-                    openChain,
-                    _snaps,
-                    settings,
-                    authoredMeshMaterial,
-                    out var before,
-                    out var createdTopology);
-                if (topology != null)
-                {
-                    MXInkMeshUndoIntegration.Instance.RecordTopologyEdit(topology, before, createdTopology);
-                    AssetSelectionManager.Instance?.SelectAsset(topology.GetComponent<PlaceableAsset>());
-                    EndSketchSession();
-                    return;
-                }
             }
         }
 
@@ -289,6 +289,7 @@ public sealed class MeshSketchController : MonoBehaviour
     {
         EndSketchSession(false);
         feedback?.ShowInvalid(feedbackPoint);
+        _hasUndoableInvalidSketch = true;
         _reservedUntilMiddleRelease = inputAdapter != null && inputAdapter.MiddleButtonPressed;
     }
 
@@ -315,7 +316,61 @@ public sealed class MeshSketchController : MonoBehaviour
         if (hideFeedback)
         {
             feedback?.HideAll();
+            _hasUndoableInvalidSketch = false;
         }
+    }
+
+    private bool IsRearUndoPressed()
+    {
+        if (inputAdapter == null || inputAdapter.Stylus == null)
+        {
+            return false;
+        }
+
+        var state = inputAdapter.Stylus.CurrentState;
+        return state.cluster_back_value || state.cluster_back_double_tap_value;
+    }
+
+    private bool TryUndoLastMeshElement()
+    {
+        if (_state == MeshSketchState.Sketching
+            || MXInkRayInteractorBinder.RearButtonHoverTargetActive
+            || IsPointerOverUi())
+        {
+            return false;
+        }
+
+        if (_hasUndoableInvalidSketch)
+        {
+            ClearInvalidSketchFeedback();
+            UiMenuSelectSoundHub.TryPlayScissorCut();
+            return true;
+        }
+
+        if (MXInkEditableMeshTopology.DeleteInvalidTopologies() > 0)
+        {
+            UiMenuSelectSoundHub.TryPlayScissorCut();
+            return true;
+        }
+
+        if (MXInkMeshUndoIntegration.Instance.TryUndo())
+        {
+            UiMenuSelectSoundHub.TryPlayScissorCut();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ClearInvalidSketchFeedback()
+    {
+        if (!_hasUndoableInvalidSketch && (feedback == null || !feedback.HasVisibleFeedback))
+        {
+            return;
+        }
+
+        feedback?.HideAll();
+        _hasUndoableInvalidSketch = false;
     }
 
     private void BuildSnappedStroke(
@@ -511,6 +566,19 @@ public sealed class MeshSketchController : MonoBehaviour
     {
         _uiCanvases.Clear();
         ResolveReferences(true);
+    }
+
+    private void OnMeshDrawingModeChanged(bool active)
+    {
+        if (active)
+        {
+            return;
+        }
+
+        CancelSketch(false);
+        ClearInvalidSketchFeedback();
+        MXInkEditableMeshTopology.DeleteInvalidTopologies();
+        _rearUndoWasPressed = false;
     }
 
     private enum MeshSketchState

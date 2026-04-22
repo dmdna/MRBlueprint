@@ -10,20 +10,17 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
     private const string GizmoLayerName = "TransformGizmo";
     /// <summary>Matches SkySandbox TagManager user slot after UI when the named layer is missing at runtime.</summary>
     private const int FallbackGizmoLayerIndex = 6;
+    private const int GizmoOverlaySortingOrder = 800;
 
     [SerializeField] private Camera scaleReferenceCamera;
     [SerializeField] private float moveSensitivity = 1f;
     [SerializeField] private float rotateSensitivity = 1f;
     [SerializeField] private float scaleSensitivity = 0.35f;
     [SerializeField] private float minScaleAxis = 0.08f;
-    [Tooltip("Extra world-space clearance so handles sit outside the mesh, not inside large scaled objects.")]
-    [SerializeField] private float boundsSurfacePadding = 0.18f;
-    [Tooltip("Local length of move arrows in gizmo space (must match BuildHandles).")]
-    [SerializeField] private float moveArrowLocalLength = 0.52f;
-    [Tooltip("Smooth uniform scale so distance/bounds changes do not pop every frame (XR head jitter, physics).")]
+    [Tooltip("Smooth uniform scale so distance changes do not pop every frame (XR head jitter).")]
     [SerializeField] private float gizmoScaleSmoothTime = 0.09f;
-    [Tooltip("Smooth renderer bounds extent before driving scale (reduces micro-jitter while the rigidbody settles).")]
-    [SerializeField] private float boundsExtentSmoothTime = 0.14f;
+    [Tooltip("World-space hover radius used only while the selected shape is under the ray.")]
+    [SerializeField] private float selectedShapeGizmoRaycastRadius = 0.14f;
 
     private int _gizmoLayer = -1;
     private GameObject _visualRoot;
@@ -38,8 +35,6 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
     private PlaceableAsset _lastSmoothingSelection;
     private float _smoothedUniformScale = 1f;
     private float _uniformScaleVel;
-    private float _smoothedMaxExtent = 0.25f;
-    private float _maxExtentVel;
 
     private static Material CreateHandleMaterial(Color color, float alpha = 0.58f)
     {
@@ -62,7 +57,7 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
 
         if (alpha < 0.99f)
         {
-            m.renderQueue = 3000;
+            m.renderQueue = (int)RenderQueue.Overlay - 2;
             m.SetOverrideTag("RenderType", "Transparent");
             if (m.HasProperty("_Surface"))
                 m.SetFloat("_Surface", 1f);
@@ -74,12 +69,18 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
                 m.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
             if (m.HasProperty("_ZWrite"))
                 m.SetFloat("_ZWrite", 0f);
+            if (m.HasProperty("_ZTest"))
+                m.SetInt("_ZTest", (int)CompareFunction.Always);
             m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             m.EnableKeyword("_ALPHABLEND_ON");
         }
         else
         {
-            m.renderQueue = 2450;
+            m.renderQueue = (int)RenderQueue.Overlay - 2;
+            if (m.HasProperty("_ZWrite"))
+                m.SetFloat("_ZWrite", 0f);
+            if (m.HasProperty("_ZTest"))
+                m.SetInt("_ZTest", (int)CompareFunction.Always);
         }
 
         return m;
@@ -91,6 +92,7 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
             return;
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         mr.receiveShadows = false;
+        mr.sortingOrder = GizmoOverlaySortingOrder;
 #if UNITY_2022_1_OR_NEWER
         mr.allowOcclusionWhenDynamic = false;
 #endif
@@ -177,26 +179,13 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
             distanceScale = Mathf.Clamp(d * 0.12f, 0.5f, 4f);
         }
 
-        float rawExtent = GetSelectionMaxWorldExtent(_placeableAsset);
         var selectionChanged = _placeableAsset != _lastSmoothingSelection;
         if (selectionChanged)
         {
             _lastSmoothingSelection = _placeableAsset;
-            _smoothedMaxExtent = rawExtent;
-            _maxExtentVel = 0f;
-        }
-        else
-        {
-            float extSmooth = Mathf.Max(0.0001f, boundsExtentSmoothTime);
-            _smoothedMaxExtent = Mathf.SmoothDamp(
-                _smoothedMaxExtent, rawExtent, ref _maxExtentVel, extSmooth,
-                Mathf.Infinity, Time.deltaTime);
         }
 
-        float reach = Mathf.Max(moveArrowLocalLength, 1e-4f);
-        float boundsScale = (_smoothedMaxExtent + boundsSurfacePadding) / reach;
-        float targetUniform = Mathf.Max(distanceScale, boundsScale);
-        targetUniform = Mathf.Clamp(targetUniform, 0.35f, 120f);
+        float targetUniform = Mathf.Clamp(distanceScale, 0.35f, 4f);
 
         if (selectionChanged)
         {
@@ -212,36 +201,6 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
         }
 
         _visualRoot.transform.localScale = Vector3.one * _smoothedUniformScale;
-    }
-
-    private static float GetSelectionMaxWorldExtent(PlaceableAsset p)
-    {
-        if (p == null)
-            return 0.25f;
-
-        var rends = p.GetRenderers();
-        if (rends == null || rends.Length == 0)
-            return 0.25f;
-
-        var has = false;
-        var b = new Bounds(p.transform.position, Vector3.zero);
-        foreach (var r in rends)
-        {
-            if (r == null)
-                continue;
-            if (!has)
-            {
-                b = r.bounds;
-                has = true;
-            }
-            else
-                b.Encapsulate(r.bounds);
-        }
-
-        if (!has)
-            return 0.25f;
-
-        return Mathf.Max(Mathf.Max(b.extents.x, b.extents.y), b.extents.z);
     }
 
     private Camera PickScaleCamera()
@@ -349,20 +308,152 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
     }
 
     public bool IsDragging => _activeKind.HasValue;
+    public bool IsVisible => isActiveAndEnabled
+                             && _visualRoot != null
+                             && _visualRoot.activeInHierarchy
+                             && _target != null;
+    public PlaceableAsset TargetPlaceable => _placeableAsset;
+
+    public bool CanUseSelectedShapeGizmoWindow(PlaceableAsset selected)
+    {
+        return selected != null && selected == _placeableAsset && IsVisible;
+    }
+
+    public bool TryRaycastHandle(
+        Ray worldRay,
+        float maxDistance,
+        out RaycastHit hit,
+        out GizmoHandlePart part)
+    {
+        return TryRaycastHandle(worldRay, maxDistance, 0f, out hit, out part);
+    }
+
+    public bool TryRaycastHandleBroad(
+        Ray worldRay,
+        float maxDistance,
+        out RaycastHit hit,
+        out GizmoHandlePart part)
+    {
+        return TryRaycastHandle(
+            worldRay,
+            maxDistance,
+            Mathf.Max(0f, selectedShapeGizmoRaycastRadius),
+            out hit,
+            out part);
+    }
+
+    private bool TryRaycastHandle(
+        Ray worldRay,
+        float maxDistance,
+        float radius,
+        out RaycastHit hit,
+        out GizmoHandlePart part)
+    {
+        hit = default;
+        part = null;
+        if (!IsVisible || _gizmoLayer < 0)
+        {
+            return false;
+        }
+
+        var mask = 1 << _gizmoLayer;
+        var distance = Mathf.Max(0.01f, maxDistance);
+        if (radius <= 0.0001f)
+        {
+            if (!Physics.Raycast(
+                    worldRay,
+                    out hit,
+                    distance,
+                    mask,
+                    QueryTriggerInteraction.Collide))
+            {
+                return false;
+            }
+
+            part = hit.collider != null ? hit.collider.GetComponent<GizmoHandlePart>() : null;
+            return part != null;
+        }
+
+        var hits = Physics.SphereCastAll(
+            worldRay,
+            radius,
+            distance,
+            mask,
+            QueryTriggerInteraction.Collide);
+        if (hits == null || hits.Length == 0)
+        {
+            return false;
+        }
+
+        var bestDistance = float.PositiveInfinity;
+        var hasBest = false;
+        for (var i = 0; i < hits.Length; i++)
+        {
+            var candidatePart = hits[i].collider != null
+                ? hits[i].collider.GetComponent<GizmoHandlePart>()
+                : null;
+            if (candidatePart == null)
+            {
+                continue;
+            }
+
+            var candidateDistance = ResolveBroadHitDistance(worldRay, hits[i], candidatePart, distance);
+            if (candidateDistance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestDistance = candidateDistance;
+            hit = hits[i];
+            hit.distance = candidateDistance;
+            hit.point = worldRay.GetPoint(hit.distance);
+            part = candidatePart;
+            hasBest = true;
+        }
+
+        return hasBest;
+    }
+
+    private static float ResolveBroadHitDistance(
+        Ray worldRay,
+        RaycastHit hit,
+        GizmoHandlePart part,
+        float maxDistance)
+    {
+        var referencePoint = part != null ? part.transform.position : hit.point;
+        var projectedDistance = Vector3.Dot(referencePoint - worldRay.origin, worldRay.direction.normalized);
+        if (!float.IsFinite(projectedDistance) || projectedDistance <= 0f)
+        {
+            projectedDistance = hit.distance;
+        }
+
+        return Mathf.Clamp(projectedDistance, 0.01f, Mathf.Max(0.01f, maxDistance));
+    }
+
+    public bool TryBeginDragBroad(Ray worldRay, float maxDistance, Camera cam)
+    {
+        return TryBeginDrag(worldRay, maxDistance, cam, true);
+    }
 
     public bool TryBeginDrag(Ray worldRay, float maxDistance, Camera cam)
+    {
+        return TryBeginDrag(worldRay, maxDistance, cam, false);
+    }
+
+    private bool TryBeginDrag(Ray worldRay, float maxDistance, Camera cam, bool useBroadWindow)
     {
         if (_target == null || cam == null)
             return false;
 
-        var mask = 1 << _gizmoLayer;
-        if (!Physics.Raycast(worldRay, out var hit, maxDistance, mask, QueryTriggerInteraction.Collide))
+        RaycastHit hit;
+        GizmoHandlePart part;
+        var hitResolved = useBroadWindow
+            ? TryRaycastHandleBroad(worldRay, maxDistance, out hit, out part)
+            : TryRaycastHandle(worldRay, maxDistance, out hit, out part);
+        if (!hitResolved)
             return false;
 
-        var part = hit.collider.GetComponent<GizmoHandlePart>();
-        if (part == null)
-            return false;
-
+        hit.point = worldRay.GetPoint(hit.distance);
         _activeKind = part.Kind;
         SyncRigidbodyFromTransform();
 

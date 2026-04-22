@@ -335,13 +335,32 @@ public static class SandboxStrokePlaceablePhysicsApplier
                 continue;
             }
 
-            var point = collider.ClosestPoint(worldPos);
+            var placeable = body.GetComponentInParent<PlaceableAsset>();
+            var hasVisualSurface = PlaceableSurfaceUtility.TryGetClosestVisibleMeshPoint(
+                placeable,
+                worldPos,
+                out var visualSurface);
+            if (!hasVisualSurface
+                && !PlaceableSurfaceUtility.TryGetClosestColliderPoint(
+                    collider,
+                    worldPos,
+                    out visualSurface))
+            {
+                continue;
+            }
+
+            var point = visualSurface.Point;
             if ((point - worldPos).sqrMagnitude <= 0.00000025f)
             {
                 point = worldPos;
             }
 
             var distanceSq = (point - worldPos).sqrMagnitude;
+            if (distanceSq > radius * radius)
+            {
+                continue;
+            }
+
             if (distanceSq >= bestSq)
             {
                 continue;

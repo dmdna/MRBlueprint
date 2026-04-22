@@ -69,53 +69,106 @@ public sealed class MXInkMeshUndoIntegration : MonoBehaviour
         _redo.Clear();
     }
 
+    public static void DiscardTopologyRecords(MXInkEditableMeshTopology topology)
+    {
+        if (topology == null)
+        {
+            return;
+        }
+
+        var integration = _instance != null
+            ? _instance
+            : FindFirstObjectByType<MXInkMeshUndoIntegration>(FindObjectsInactive.Include);
+        integration?.DiscardRecordsFor(topology);
+    }
+
+    public void DiscardRecordsFor(MXInkEditableMeshTopology topology)
+    {
+        if (topology == null)
+        {
+            return;
+        }
+
+        RemoveRecordsFor(_undo, topology);
+        RemoveRecordsFor(_redo, topology);
+    }
+
     public bool TryUndo()
     {
-        if (_undo.Count == 0)
+        while (_undo.Count > 0)
         {
-            return false;
+            var record = _undo.Pop();
+            if (record.Topology == null)
+            {
+                continue;
+            }
+
+            if (record.CreatedTopology)
+            {
+                if (AssetSelectionManager.Instance != null
+                    && AssetSelectionManager.Instance.SelectedAsset == record.Topology.GetComponent<PlaceableAsset>())
+                {
+                    AssetSelectionManager.Instance.ClearSelection();
+                }
+
+                record.Topology.gameObject.SetActive(false);
+            }
+            else
+            {
+                record.Topology.RestoreSnapshot(record.Before);
+            }
+
+            _redo.Push(record);
+            return true;
         }
 
-        var record = _undo.Pop();
-        if (record.Topology == null)
+        return false;
+    }
+
+    private static void RemoveRecordsFor(Stack<EditRecord> stack, MXInkEditableMeshTopology topology)
+    {
+        if (stack == null || stack.Count == 0 || topology == null)
         {
-            return false;
+            return;
         }
 
-        if (record.CreatedTopology)
+        var retained = new List<EditRecord>();
+        while (stack.Count > 0)
         {
-            record.Topology.gameObject.SetActive(false);
-        }
-        else
-        {
-            record.Topology.RestoreSnapshot(record.Before);
+            var record = stack.Pop();
+            if (record.Topology != null && record.Topology != topology)
+            {
+                retained.Add(record);
+            }
         }
 
-        _redo.Push(record);
-        return true;
+        for (var i = retained.Count - 1; i >= 0; i--)
+        {
+            stack.Push(retained[i]);
+        }
     }
 
     public bool TryRedo()
     {
-        if (_redo.Count == 0)
+        while (_redo.Count > 0)
         {
-            return false;
+            var record = _redo.Pop();
+            if (record.Topology == null)
+            {
+                continue;
+            }
+
+            if (record.CreatedTopology && !record.Topology.gameObject.activeSelf)
+            {
+                record.Topology.gameObject.SetActive(true);
+            }
+
+            record.Topology.RestoreSnapshot(record.After);
+            _undo.Push(record);
+            return true;
         }
 
-        var record = _redo.Pop();
-        if (record.Topology == null)
-        {
-            return false;
-        }
-
-        if (record.CreatedTopology && !record.Topology.gameObject.activeSelf)
-        {
-            record.Topology.gameObject.SetActive(true);
-        }
-
-        record.Topology.RestoreSnapshot(record.After);
-        _undo.Push(record);
-        return true;
+        return false;
     }
 
     private sealed class EditRecord

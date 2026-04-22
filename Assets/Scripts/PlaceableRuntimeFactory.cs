@@ -28,10 +28,9 @@ public static class PlaceableRuntimeFactory
         var mr = root.AddComponent<MeshRenderer>();
         mr.sharedMaterial = sharedMaterial;
 
-        var bounds = mesh.bounds;
-        var box = root.AddComponent<BoxCollider>();
-        box.center = bounds.center;
-        box.size = Vector3.Max(bounds.size, new Vector3(0.04f, 0.04f, 0.04f));
+        var meshCollider = root.AddComponent<MeshCollider>();
+        meshCollider.sharedMesh = mesh;
+        meshCollider.convex = true;
 
         var rb = root.AddComponent<Rigidbody>();
         rb.mass = 1f;

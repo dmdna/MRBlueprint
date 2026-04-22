@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 [DisallowMultipleComponent]
 [RequireComponent(typeof(MeshFilter))]
@@ -28,6 +29,7 @@ public sealed class MXInkEditableMeshTopology : MonoBehaviour
 
     public static IReadOnlyList<MXInkEditableMeshTopology> Active => ActiveTopologies;
     public int VertexCount => vertices.Count;
+    public bool HasRenderableFaces => CountRenderableTriangles() > 0;
     public int EdgeCount
     {
         get
@@ -80,6 +82,11 @@ public sealed class MXInkEditableMeshTopology : MonoBehaviour
         var filter = go.AddComponent<MeshFilter>();
         var renderer = go.AddComponent<MeshRenderer>();
         var collider = go.AddComponent<MeshCollider>();
+        collider.convex = true;
+        var rb = go.AddComponent<Rigidbody>();
+        rb.mass = 1f;
+        rb.useGravity = true;
+
         var topology = go.AddComponent<MXInkEditableMeshTopology>();
         topology.meshFilter = filter;
         topology.meshRenderer = renderer;
@@ -99,7 +106,50 @@ public sealed class MXInkEditableMeshTopology : MonoBehaviour
         var placeable = go.AddComponent<PlaceableAsset>();
         placeable.SetAssetDisplayNameForRuntime("Authored Mesh");
         go.AddComponent<SelectableAsset>();
+        go.AddComponent<XRGrabInteractable>();
+        go.AddComponent<PlaceableXRGrabBridge>();
+        go.AddComponent<CollisionEventCache>();
+        go.AddComponent<PhysicsLensForceEventCache>();
         return topology;
+    }
+
+    public static int DeleteInvalidTopologies()
+    {
+        var deletedCount = 0;
+        for (var i = ActiveTopologies.Count - 1; i >= 0; i--)
+        {
+            var topology = ActiveTopologies[i];
+            if (topology == null)
+            {
+                ActiveTopologies.RemoveAt(i);
+                continue;
+            }
+
+            if (topology.HasRenderableFaces)
+            {
+                continue;
+            }
+
+            ActiveTopologies.RemoveAt(i);
+            MXInkMeshUndoIntegration.DiscardTopologyRecords(topology);
+            if (AssetSelectionManager.Instance != null
+                && AssetSelectionManager.Instance.SelectedAsset == topology.GetComponent<PlaceableAsset>())
+            {
+                AssetSelectionManager.Instance.ClearSelection();
+            }
+
+            deletedCount++;
+            if (Application.isPlaying)
+            {
+                Destroy(topology.gameObject);
+            }
+            else
+            {
+                DestroyImmediate(topology.gameObject);
+            }
+        }
+
+        return deletedCount;
     }
 
     public Vector3 GetVertexWorld(int index)
@@ -265,6 +315,7 @@ public sealed class MXInkEditableMeshTopology : MonoBehaviour
 
         if (meshCollider != null)
         {
+            meshCollider.convex = true;
             meshCollider.sharedMesh = null;
             meshCollider.sharedMesh = triangles.Count > 0 ? _runtimeMesh : null;
         }
@@ -333,6 +384,30 @@ public sealed class MXInkEditableMeshTopology : MonoBehaviour
                 meshRenderer.sharedMaterial = runtimeMaterial;
             }
         }
+    }
+
+    private int CountRenderableTriangles()
+    {
+        var count = 0;
+        for (var f = 0; f < faces.Count; f++)
+        {
+            var face = faces[f];
+            if (face == null || face.TriangleIndices == null)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < face.TriangleIndices.Count; i++)
+            {
+                var index = face.TriangleIndices[i];
+                if (index >= 0 && index < vertices.Count)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
     }
 
     private void RebuildConstructionEdgeRenderers()

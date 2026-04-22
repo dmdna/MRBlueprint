@@ -29,6 +29,13 @@ public sealed class MeshSketchFeedback : MonoBehaviour
     private Material _previewMaterial;
     private float _invalidUntil;
 
+    public bool HasVisibleFeedback =>
+        (_ghostLine != null && _ghostLine.enabled)
+        || (_edgeLine != null && _edgeLine.enabled)
+        || (_snapRenderer != null && _snapRenderer.enabled)
+        || (_closureRenderer != null && _closureRenderer.enabled)
+        || (_previewRenderer != null && _previewRenderer.enabled);
+
     private void Awake()
     {
         EnsureVisuals();
@@ -111,6 +118,7 @@ public sealed class MeshSketchFeedback : MonoBehaviour
     public void HideAll()
     {
         EnsureVisuals();
+        _invalidUntil = 0f;
         _ghostLine.enabled = false;
         _edgeLine.enabled = false;
         _snapRenderer.enabled = false;

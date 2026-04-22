@@ -46,6 +46,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
     private const int RightPointerId = -12002;
     private const int EndMarkerSegments = 32;
     private const int RayOverlaySortingOrder = 620;
+    private const float UiDepthEpsilon = 0.001f;
     private static readonly Color ControllerRayColor = new(0.78f, 0.78f, 0.78f, 0.38f);
 
     private ControllerRayState _leftRay;
@@ -186,13 +187,53 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             return pointerState;
         }
 
-        if (WorldSpaceUiRayPointer.TryGetHit(
-                enableWorldUiPointer,
-                uiCanvasName,
+        ResolveTransformGizmo();
+        var rayMaxDistance = Mathf.Max(selectionRayLength, drawingRayLength, uiRayDistance);
+        var hasUiHit = WorldSpaceUiRayPointer.TryGetHit(
+            enableWorldUiPointer,
+            uiCanvasName,
+            origin,
+            direction,
+            Mathf.Max(maxRayDistance, uiRayDistance),
+            out var uiHit);
+
+        if (transformGizmo != null
+            && transformGizmo.TryRaycastHandle(
+                new Ray(origin, direction),
+                rayMaxDistance,
+                out var gizmoHit,
+                out var gizmoPart)
+            && RayHitBeatsUi(gizmoHit, hasUiHit, uiHit))
+        {
+            SetLine(rayState, origin, ResolveRayEndPoint(origin, direction, gizmoHit.distance));
+            pointerState.HasHit = true;
+            pointerState.Hit = gizmoHit;
+            pointerState.HoveredGizmoPart = gizmoPart;
+            pointerState.RayVisible = true;
+            return pointerState;
+        }
+
+        if (TryResolveSelectedShapeGizmoWindowHit(
+                sourceId,
                 origin,
                 direction,
-                Mathf.Max(maxRayDistance, uiRayDistance),
-                out var uiHit))
+                rayMaxDistance,
+                out var selectedWindowHit,
+                out var selectedWindowPlaceable,
+                out var selectedWindowGizmoPart)
+            && RayHitBeatsUi(selectedWindowHit, hasUiHit, uiHit))
+        {
+            SetLine(rayState, origin, ResolveRayEndPoint(origin, direction, selectedWindowHit.distance));
+            pointerState.HasHit = true;
+            pointerState.Hit = selectedWindowHit;
+            pointerState.HoveredShape = selectedWindowPlaceable;
+            pointerState.HoveredGizmoPart = selectedWindowGizmoPart;
+            pointerState.SelectedShapeGizmoWindow = true;
+            pointerState.RayVisible = true;
+            return pointerState;
+        }
+
+        if (hasUiHit)
         {
             SetLine(rayState, origin, ResolveRayEndPoint(origin, direction, uiHit.Distance));
             pointerState.HasUiHit = true;
@@ -208,12 +249,14 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                     origin,
                     direction,
                     selectionRayLength,
+                    sourceId,
                     out var hit,
                     out var hitPlaceable,
                     out var hitDrawerItem,
                     out var hitGizmoPart,
                     out var hitDrawing,
-                    out var hitEndpointHandle))
+                    out var hitEndpointHandle,
+                    out var selectedShapeGizmoWindow))
             {
                 SetLine(rayState, origin, ResolveRayEndPoint(origin, direction, hit.distance));
                 pointerState.HasHit = true;
@@ -223,6 +266,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 pointerState.HoveredGizmoPart = hitGizmoPart;
                 pointerState.HoveredDrawing = hitDrawing;
                 pointerState.HoveredDrawingEndpoint = hitEndpointHandle;
+                pointerState.SelectedShapeGizmoWindow = selectedShapeGizmoWindow;
                 pointerState.RayVisible = true;
 
                 if (hitDrawerItem != null && hitGizmoPart == null)
@@ -243,12 +287,14 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
                 origin,
                 direction,
                 drawingRayLength,
+                sourceId,
                 out var drawingHit,
                 out var drawingPlaceable,
                 out _,
                 out var drawingGizmoPart,
                 out var drawingSelectable,
-                out var drawingEndpointHandle)
+                out var drawingEndpointHandle,
+                out var selectedShapeDrawingWindow)
             && (drawingPlaceable != null
                 || drawingGizmoPart != null
                 || drawingSelectable != null
@@ -261,6 +307,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             pointerState.HoveredGizmoPart = drawingGizmoPart;
             pointerState.HoveredDrawing = drawingSelectable;
             pointerState.HoveredDrawingEndpoint = drawingEndpointHandle;
+            pointerState.SelectedShapeGizmoWindow = selectedShapeDrawingWindow;
             pointerState.RayVisible = true;
             return pointerState;
         }
@@ -269,43 +316,84 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         return pointerState;
     }
 
+    private static bool RayHitBeatsUi(
+        RaycastHit hit,
+        bool hasUiHit,
+        WorldSpaceUiRayPointer.Hit uiHit)
+    {
+        return !hasUiHit || hit.distance < uiHit.Distance - UiDepthEpsilon;
+    }
+
     private bool TryGetFirstRayHit(
         Vector3 origin,
         Vector3 direction,
         float maxDistance,
+        int sourceId,
         out RaycastHit firstHit,
         out PlaceableAsset hitPlaceable,
         out XRDrawerItem hitDrawerItem,
         out GizmoHandlePart hitGizmoPart,
         out PhysicsDrawingSelectable hitDrawing,
-        out PhysicsDrawingEndpointHandle hitEndpointHandle)
+        out PhysicsDrawingEndpointHandle hitEndpointHandle,
+        out bool hitSelectedShapeGizmoWindow)
     {
         var length = Mathf.Max(0.01f, maxDistance);
-        var hits = Physics.RaycastAll(origin, direction, length, raycastMask, QueryTriggerInteraction.Collide);
-        if (hits == null || hits.Length == 0)
-        {
-            firstHit = default;
-            hitPlaceable = null;
-            hitDrawerItem = null;
-            hitGizmoPart = null;
-            hitDrawing = null;
-            hitEndpointHandle = null;
-            return TryResolveEndpointRayFallback(
-                origin,
-                direction,
-                length,
-                out firstHit,
-                out hitDrawing,
-                out hitEndpointHandle);
-        }
-
-        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-        firstHit = hits[0];
+        firstHit = default;
         hitPlaceable = null;
         hitDrawerItem = null;
         hitGizmoPart = null;
         hitDrawing = null;
         hitEndpointHandle = null;
+        hitSelectedShapeGizmoWindow = false;
+
+        ResolveTransformGizmo();
+        if (transformGizmo != null
+            && transformGizmo.TryRaycastHandle(
+                new Ray(origin, direction),
+                length,
+                out firstHit,
+                out hitGizmoPart))
+        {
+            return true;
+        }
+
+        if (TryResolveSelectedShapeGizmoWindowHit(
+                sourceId,
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitPlaceable,
+                out hitGizmoPart))
+        {
+            hitSelectedShapeGizmoWindow = true;
+            return true;
+        }
+
+        var hits = Physics.RaycastAll(origin, direction, length, raycastMask, QueryTriggerInteraction.Collide);
+        if (hits == null || hits.Length == 0)
+        {
+            if (TryResolveEndpointRayFallback(
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitDrawing,
+                out hitEndpointHandle))
+            {
+                return true;
+            }
+
+            return TryResolvePlaceableVisualRayFallback(
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitPlaceable);
+        }
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        firstHit = hits[0];
 
         foreach (var hit in hits)
         {
@@ -364,6 +452,16 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             }
         }
 
+        if (TryResolvePlaceableVisualRayFallback(
+                origin,
+                direction,
+                length,
+                out firstHit,
+                out hitPlaceable))
+        {
+            return true;
+        }
+
         foreach (var hit in hits)
         {
             hitPlaceable = hit.collider != null
@@ -377,6 +475,101 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         }
 
         return false;
+    }
+
+    private static bool TryResolvePlaceableVisualRayFallback(
+        Vector3 origin,
+        Vector3 direction,
+        float maxDistance,
+        out RaycastHit hit,
+        out PlaceableAsset placeable)
+    {
+        hit = default;
+        placeable = null;
+        var ray = new Ray(origin, direction);
+        var placeables = UnityEngine.Object.FindObjectsByType<PlaceableAsset>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        var bestDistance = Mathf.Max(0.01f, maxDistance);
+        for (var i = 0; i < placeables.Length; i++)
+        {
+            var candidate = placeables[i];
+            if (candidate == null
+                || candidate.GetComponentInParent<SpawnTemplateMarker>() != null
+                || !PlaceableSurfaceUtility.TryRaycastVisibleMesh(
+                    candidate,
+                    ray,
+                    bestDistance,
+                    out var surface))
+            {
+                continue;
+            }
+
+            bestDistance = surface.Distance;
+            placeable = candidate;
+            hit.distance = surface.Distance;
+            hit.point = surface.Point;
+        }
+
+        return placeable != null;
+    }
+
+    private bool TryResolveSelectedShapeGizmoWindowHit(
+        int sourceId,
+        Vector3 origin,
+        Vector3 direction,
+        float maxDistance,
+        out RaycastHit hit,
+        out PlaceableAsset hitPlaceable,
+        out GizmoHandlePart hitGizmoPart)
+    {
+        hit = default;
+        hitPlaceable = null;
+        hitGizmoPart = null;
+        var selected = AssetSelectionManager.Instance != null
+            ? AssetSelectionManager.Instance.SelectedAsset
+            : null;
+        if (!IsSelectedShapeGizmoWindowActive(selected, sourceId))
+        {
+            return false;
+        }
+
+        var ray = new Ray(origin, direction);
+        if (!PlaceableSurfaceUtility.TryRaycastVisibleMeshExit(
+                selected,
+                ray,
+                maxDistance,
+                out var exitSurface))
+        {
+            return false;
+        }
+
+        if (transformGizmo.TryRaycastHandleBroad(
+                ray,
+                maxDistance,
+                out hit,
+                out hitGizmoPart))
+        {
+            hit.point = ray.GetPoint(hit.distance);
+            return true;
+        }
+
+        var inset = Mathf.Max(endMarkerSurfaceOffset, 0.001f);
+        hit.distance = Mathf.Max(0.01f, exitSurface.Distance - inset);
+        hit.point = ray.GetPoint(hit.distance);
+        hitPlaceable = selected;
+        return true;
+    }
+
+    private bool IsSelectedShapeGizmoWindowActive(PlaceableAsset selected, int sourceId)
+    {
+        return selected != null
+               && ResolveControlMode() == XRControlMode.Edit
+               && transformGizmo != null
+               && transformGizmo.CanUseSelectedShapeGizmoWindow(selected)
+               && _activeGizmoDragSourceId == 0
+               && !PlaceableMultiGrabCoordinator.AnyGrabActive
+               && !PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId);
     }
 
     private static bool TryResolveEndpointRayFallback(
@@ -516,8 +709,16 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             return;
         }
 
-        var closestPoint = collider.ClosestPoint(origin);
-        var distance = Vector3.Distance(origin, closestPoint);
+        if (!PlaceableSurfaceUtility.TryGetClosestColliderPoint(
+                collider,
+                origin,
+                out var surface))
+        {
+            return;
+        }
+
+        var closestPoint = surface.Point;
+        var distance = surface.Distance;
         if (distance > maxDistance || distance >= nearestDistance)
         {
             return;
@@ -682,7 +883,10 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
             return true;
         }
 
-        if (!triggerPressed || triggerWasPressed || !pointerState.IsUsable || pointerState.HasUiHit)
+        if (!triggerPressed
+            || triggerWasPressed
+            || !pointerState.IsUsable
+            || (pointerState.HasUiHit && pointerState.HoveredGizmoPart == null))
         {
             return false;
         }
@@ -697,7 +901,10 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
 
         var ray = new Ray(pointerState.Origin, pointerState.Direction);
         var maxDistance = Mathf.Max(selectionRayLength, drawingRayLength, uiRayDistance);
-        if (!gizmo.TryBeginDrag(ray, maxDistance, gizmoCamera))
+        var beganDrag = pointerState.SelectedShapeGizmoWindow
+            ? gizmo.TryBeginDragBroad(ray, maxDistance, gizmoCamera)
+            : gizmo.TryBeginDrag(ray, maxDistance, gizmoCamera);
+        if (!beganDrag)
         {
             return pointerState.HoveredGizmoPart != null;
         }
@@ -1597,6 +1804,7 @@ public class NonStylusControllerRayVisuals : MonoBehaviour
         public GizmoHandlePart HoveredGizmoPart;
         public PhysicsDrawingSelectable HoveredDrawing;
         public PhysicsDrawingEndpointHandle HoveredDrawingEndpoint;
+        public bool SelectedShapeGizmoWindow;
         public bool HasUiHit;
         public WorldSpaceUiRayPointer.Hit UiHit;
     }

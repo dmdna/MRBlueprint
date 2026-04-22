@@ -182,6 +182,17 @@ public class SandboxEditorInputRouter : MonoBehaviour
         var hits = Physics.RaycastAll(ray, maxRayDistance, raycastMask, QueryTriggerInteraction.Collide);
         if (hits == null || hits.Length == 0)
         {
+            if (TryResolvePlaceableVisualRayFallback(ray, maxRayDistance, out var visualPlaceable))
+            {
+                _placeablePressCandidate = visualPlaceable;
+                _placeablePressRigidbody = visualPlaceable.Rigidbody;
+                _drawingPressCandidate = null;
+                _placeablePressScreen = screenPos;
+                _placeableDragging = false;
+                _placeableDragPlaneReady = false;
+                return;
+            }
+
             _placeablePressCandidate = null;
             _placeablePressRigidbody = null;
             _drawingPressCandidate = null;
@@ -225,6 +236,17 @@ public class SandboxEditorInputRouter : MonoBehaviour
             }
         }
 
+        if (TryResolvePlaceableVisualRayFallback(ray, maxRayDistance, out var fallbackPlaceable))
+        {
+            _placeablePressCandidate = fallbackPlaceable;
+            _placeablePressRigidbody = fallbackPlaceable.Rigidbody;
+            _drawingPressCandidate = null;
+            _placeablePressScreen = screenPos;
+            _placeableDragging = false;
+            _placeableDragPlaneReady = false;
+            return;
+        }
+
         foreach (var hit in hits)
         {
             if (hit.collider.GetComponent<GizmoHandlePart>() != null)
@@ -248,6 +270,37 @@ public class SandboxEditorInputRouter : MonoBehaviour
         _drawingPressCandidate = null;
         if (AssetSelectionManager.Instance != null)
             AssetSelectionManager.Instance.ClearSelection();
+    }
+
+    private static bool TryResolvePlaceableVisualRayFallback(
+        Ray ray,
+        float maxDistance,
+        out PlaceableAsset placeable)
+    {
+        placeable = null;
+        var placeables = UnityEngine.Object.FindObjectsByType<PlaceableAsset>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        var bestDistance = Mathf.Max(0.01f, maxDistance);
+        for (var i = 0; i < placeables.Length; i++)
+        {
+            var candidate = placeables[i];
+            if (candidate == null
+                || candidate.GetComponentInParent<SpawnTemplateMarker>() != null
+                || !PlaceableSurfaceUtility.TryRaycastVisibleMesh(
+                    candidate,
+                    ray,
+                    bestDistance,
+                    out var surface))
+            {
+                continue;
+            }
+
+            bestDistance = surface.Distance;
+            placeable = candidate;
+        }
+
+        return placeable != null;
     }
 
     private bool IsControllerPrimaryPressed(UnityEngine.XR.InputDeviceCharacteristics characteristics)
