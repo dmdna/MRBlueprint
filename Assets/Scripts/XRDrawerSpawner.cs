@@ -19,6 +19,10 @@ public class XRDrawerSpawner : MonoBehaviour
 
     [Header("Placement")]
     [SerializeField] private float maxRaycastDistance = 24f;
+    [Tooltip("Selection ray reach used to keep drawer spawns reachable after placement is resolved.")]
+    [SerializeField] private float reachableRayDistance = 8f;
+    [Tooltip("Extra distance kept between the estimated object bounds and the end of the selection ray.")]
+    [SerializeField] private float reachableSpawnPadding = 0.25f;
     [Tooltip("Raycast mask for the sandbox floor (or other valid placement surfaces).")]
     [SerializeField] private LayerMask placementMask;
     [SerializeField] private float fallbackGroundY = 0f;
@@ -57,7 +61,7 @@ public class XRDrawerSpawner : MonoBehaviour
             return;
         }
 
-        var spawnPos = ResolveSpawnPosition();
+        var spawnPos = ResolveSpawnPosition(drawerItem.SpawnPrefab);
         var instance = Instantiate(drawerItem.SpawnPrefab, spawnPos, Quaternion.identity);
         instance.SetActive(true);
         EnsureTelemetryFeatures(instance);
@@ -108,7 +112,7 @@ public class XRDrawerSpawner : MonoBehaviour
         }
     }
 
-    private Vector3 ResolveSpawnPosition()
+    private Vector3 ResolveSpawnPosition(GameObject spawnPrefab)
     {
         if (spawnPoint != null)
         {
@@ -118,12 +122,16 @@ public class XRDrawerSpawner : MonoBehaviour
         var ray = BuildViewportCenterRay();
         var origin = ray.origin;
         var dir = ray.direction;
+        var maxCenterDistance = ResolveReachableCenterDistance(spawnPrefab);
 
         if (placementMask.value != 0 &&
             Physics.Raycast(ray, out var hit, maxRaycastDistance, placementMask, QueryTriggerInteraction.Ignore))
         {
             var n = hit.normal.sqrMagnitude > 0.0001f ? hit.normal.normalized : Vector3.up;
-            return hit.point + n * surfaceBias + Vector3.up * clearanceAboveFloor;
+            return ClampSpawnPositionToReach(
+                hit.point + n * surfaceBias + Vector3.up * clearanceAboveFloor,
+                origin,
+                maxCenterDistance);
         }
 
         const float eps = 1e-4f;
@@ -133,7 +141,10 @@ public class XRDrawerSpawner : MonoBehaviour
             if (t > 0.01f && t < maxRaycastDistance)
             {
                 var p = origin + dir * t;
-                return new Vector3(p.x, fallbackGroundY + clearanceAboveFloor + surfaceBias, p.z);
+                return ClampSpawnPositionToReach(
+                    new Vector3(p.x, fallbackGroundY + clearanceAboveFloor + surfaceBias, p.z),
+                    origin,
+                    maxCenterDistance);
             }
         }
 
@@ -146,7 +157,93 @@ public class XRDrawerSpawner : MonoBehaviour
 
         flat.Normalize();
         var xz = origin + flat * horizontalFallbackDistance;
-        return new Vector3(xz.x, fallbackGroundY + clearanceAboveFloor + surfaceBias, xz.z);
+        return ClampSpawnPositionToReach(
+            new Vector3(xz.x, fallbackGroundY + clearanceAboveFloor + surfaceBias, xz.z),
+            origin,
+            maxCenterDistance);
+    }
+
+    private float ResolveReachableCenterDistance(GameObject spawnPrefab)
+    {
+        var reach = Mathf.Max(0.5f, reachableRayDistance);
+        var boundsRadius = EstimatePrefabReachRadius(spawnPrefab);
+        return Mathf.Max(0.5f, reach - boundsRadius - Mathf.Max(0f, reachableSpawnPadding));
+    }
+
+    private Vector3 ClampSpawnPositionToReach(Vector3 position, Vector3 rayOrigin, float maxDistance)
+    {
+        maxDistance = Mathf.Max(0.5f, maxDistance);
+        var offset = position - rayOrigin;
+        if (offset.sqrMagnitude <= maxDistance * maxDistance)
+        {
+            return position;
+        }
+
+        var vertical = position.y - rayOrigin.y;
+        var horizontal = new Vector2(offset.x, offset.z);
+        if (horizontal.sqrMagnitude <= 0.0001f)
+        {
+            return rayOrigin + offset.normalized * maxDistance;
+        }
+
+        var maxHorizontal = Mathf.Sqrt(Mathf.Max(0.01f, maxDistance * maxDistance - vertical * vertical));
+        if (horizontal.sqrMagnitude <= maxHorizontal * maxHorizontal)
+        {
+            return position;
+        }
+
+        var clampedHorizontal = horizontal.normalized * maxHorizontal;
+        return new Vector3(rayOrigin.x + clampedHorizontal.x, position.y, rayOrigin.z + clampedHorizontal.y);
+    }
+
+    private static float EstimatePrefabReachRadius(GameObject spawnPrefab)
+    {
+        if (spawnPrefab == null)
+        {
+            return 0.5f;
+        }
+
+        var root = spawnPrefab.transform;
+        var maxSq = 0f;
+        var filters = spawnPrefab.GetComponentsInChildren<MeshFilter>(true);
+        for (var i = 0; i < filters.Length; i++)
+        {
+            var filter = filters[i];
+            if (filter == null || filter.sharedMesh == null)
+            {
+                continue;
+            }
+
+            EncapsulateMeshBounds(filter.sharedMesh.bounds, filter.transform, root, ref maxSq);
+        }
+
+        return maxSq > 0.0001f ? Mathf.Sqrt(maxSq) : 0.5f;
+    }
+
+    private static void EncapsulateMeshBounds(Bounds bounds, Transform meshTransform, Transform root, ref float maxSq)
+    {
+        if (meshTransform == null || root == null)
+        {
+            return;
+        }
+
+        var min = bounds.min;
+        var max = bounds.max;
+        for (var x = 0; x < 2; x++)
+        {
+            for (var y = 0; y < 2; y++)
+            {
+                for (var z = 0; z < 2; z++)
+                {
+                    var corner = new Vector3(
+                        x == 0 ? min.x : max.x,
+                        y == 0 ? min.y : max.y,
+                        z == 0 ? min.z : max.z);
+                    var offset = meshTransform.TransformPoint(corner) - root.position;
+                    maxSq = Mathf.Max(maxSq, offset.sqrMagnitude);
+                }
+            }
+        }
     }
 
     private Ray BuildViewportCenterRay()

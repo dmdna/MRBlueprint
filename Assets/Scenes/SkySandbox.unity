@@ -2200,6 +2200,8 @@ MonoBehaviour:
   spawnSoundClip: {fileID: 8300000, guid: d37cc7fedeec89c4589c6190f502249d, type: 3}
   spawnSoundVolume: 1
   maxRaycastDistance: 24
+  reachableRayDistance: 8
+  reachableSpawnPadding: 0.25
   placementMask:
     serializedVersion: 2
     m_Bits: 8
