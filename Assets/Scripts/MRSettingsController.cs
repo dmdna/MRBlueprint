@@ -29,7 +29,7 @@ public class MRSettingsController : MonoBehaviour
     public string StatusMessage { get; private set; } = "Checking Room Setup...";
 
     public bool RandomizeRoomAvailable => !State.UseRoomSetup && State.MRRoomEnabled && !IsApplying;
-    public bool UseRoomSetupControlAvailable => RoomSetupAvailable && !IsApplying;
+    public bool UseRoomSetupControlAvailable => !IsApplying;
     public bool BlueprintControlAvailable => !(State.MRRoomEnabled && !State.UseRoomSetup) && !IsApplying;
 
     private void Awake()
@@ -143,14 +143,6 @@ public class MRSettingsController : MonoBehaviour
             resolved.UseRoomSetup = false;
         }
 
-        // Dependency rule: if Room Setup cannot actually be used, the toggle must reflect reality.
-        if (resolved.UseRoomSetup && !RoomSetupAvailable)
-        {
-            ShowFallbackMessageOnce();
-            resolved.UseRoomSetup = false;
-            resolved.MRRoomEnabled = !startupDecision && requested.MRRoomEnabled;
-        }
-
         // Dependency rule: randomized rooms keep their blueprint visible to avoid implying real-room alignment.
         if (resolved.MRRoomEnabled && !resolved.UseRoomSetup)
         {
@@ -185,7 +177,9 @@ public class MRSettingsController : MonoBehaviour
             var loaded = RoomMode == MRSettingsRoomMode.RoomSetup && HasLoadedRooms();
             if (!loaded)
             {
-                loaded = await TryLoadRoomSetup(false);
+                StatusMessage = RoomSetupAvailable ? "Loading Quest Room Setup..." : "Starting Quest Room Setup...";
+                StateChanged?.Invoke();
+                loaded = await TryLoadRoomSetup(!RoomSetupAvailable);
             }
 
             if (version != _applyVersion)

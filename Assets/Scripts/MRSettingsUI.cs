@@ -168,7 +168,7 @@ public class MRSettingsUI : MonoBehaviour
         _passthroughRow.SetEnabled(!_controller.IsApplying, "Solid background when off.");
         _roomRow.SetEnabled(!_controller.IsApplying, state.MRRoomEnabled ? "Full room surfaces." : "Floor Only mode.");
         _roomSetupRow.SetEnabled(_controller.UseRoomSetupControlAvailable,
-            _controller.RoomSetupAvailable ? "Quest room data when available." : "Room Setup data not currently available.");
+            _controller.RoomSetupAvailable ? "Quest room data when available." : "Starts Quest Room Setup if needed.");
         _blueprintRow.SetEnabled(_controller.BlueprintControlAvailable,
             _controller.BlueprintControlAvailable
                 ? "Shows or hides MR surface mesh visuals."

@@ -10,6 +10,8 @@ using XRInputDevices = UnityEngine.XR.InputDevices;
 
 public class MRPhysicsSurfaceManager : MonoBehaviour
 {
+    private const int FallbackFloorRenderQueue = (int)RenderQueue.AlphaTest - 10;
+
     private static readonly XRInputDeviceCharacteristics LeftControllerCharacteristics =
         XRInputDeviceCharacteristics.Left | XRInputDeviceCharacteristics.Controller;
 
@@ -420,7 +422,7 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
         {
             name = "FallbackFloorRuntimeMaterial",
             color = fallbackFloorColor,
-            renderQueue = 3000
+            renderQueue = FallbackFloorRenderQueue
         };
 
         if (material.HasProperty("_BaseColor"))
@@ -450,7 +452,12 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
 
         if (material.HasProperty("_ZWrite"))
         {
-            material.SetFloat("_ZWrite", 0f);
+            material.SetFloat("_ZWrite", 1f);
+        }
+
+        if (material.HasProperty("_ZTest"))
+        {
+            material.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
         }
 
         material.SetOverrideTag("RenderType", "Transparent");

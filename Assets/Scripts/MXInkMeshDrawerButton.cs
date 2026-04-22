@@ -373,14 +373,94 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         var root = new GameObject("ProceduralPencilIcon");
         root.transform.SetParent(parent, false);
 
-        CreatePencilPart(root.transform, "Body", new Vector3(0.08f, 0f, 0f), new Vector3(0.68f, 0.12f, 0.05f));
-        CreatePencilPart(root.transform, "Tip", new Vector3(-0.34f, 0f, 0f), new Vector3(0.16f, 0.12f, 0.05f));
-        CreatePencilPart(root.transform, "Eraser", new Vector3(0.48f, 0f, 0f), new Vector3(0.12f, 0.12f, 0.05f));
+        var silhouette = new GameObject("PencilSilhouette");
+        silhouette.transform.SetParent(root.transform, false);
+        silhouette.transform.localPosition = Vector3.zero;
+        silhouette.transform.localRotation = Quaternion.identity;
+        silhouette.transform.localScale = Vector3.one;
+
+        var filter = silhouette.AddComponent<MeshFilter>();
+        filter.sharedMesh = CreatePencilSilhouetteMesh();
+
+        var renderer = silhouette.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = _iconMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+
+        CreatePencilPart(root.transform, "BodyCutout", new Vector3(0.06f, 0f, -0.029f), new Vector3(0.52f, 0.034f, 0.006f), _plateMaterial);
+        CreatePencilPart(root.transform, "TipCutout", new Vector3(-0.35f, 0f, -0.03f), new Vector3(0.12f, 0.038f, 0.007f), _plateMaterial);
 
         return root;
     }
 
-    private void CreatePencilPart(Transform parent, string objectName, Vector3 localPosition, Vector3 localScale)
+    private static Mesh CreatePencilSilhouetteMesh()
+    {
+        var outline = new[]
+        {
+            new Vector2(-0.52f, 0f),
+            new Vector2(-0.35f, 0.13f),
+            new Vector2(0.42f, 0.13f),
+            new Vector2(0.55f, 0.07f),
+            new Vector2(0.55f, -0.07f),
+            new Vector2(0.42f, -0.13f),
+            new Vector2(-0.35f, -0.13f)
+        };
+
+        var depth = 0.052f;
+        var vertexCount = outline.Length * 2;
+        var vertices = new Vector3[vertexCount];
+        for (var i = 0; i < outline.Length; i++)
+        {
+            vertices[i] = new Vector3(outline[i].x, outline[i].y, -depth * 0.5f);
+            vertices[i + outline.Length] = new Vector3(outline[i].x, outline[i].y, depth * 0.5f);
+        }
+
+        var triangles = new List<int>((outline.Length - 2) * 6 + outline.Length * 6);
+        for (var i = 1; i < outline.Length - 1; i++)
+        {
+            triangles.Add(0);
+            triangles.Add(i);
+            triangles.Add(i + 1);
+
+            triangles.Add(outline.Length);
+            triangles.Add(outline.Length + i + 1);
+            triangles.Add(outline.Length + i);
+        }
+
+        for (var i = 0; i < outline.Length; i++)
+        {
+            var next = (i + 1) % outline.Length;
+            var frontA = i;
+            var frontB = next;
+            var backA = i + outline.Length;
+            var backB = next + outline.Length;
+
+            triangles.Add(frontA);
+            triangles.Add(backA);
+            triangles.Add(frontB);
+
+            triangles.Add(frontB);
+            triangles.Add(backA);
+            triangles.Add(backB);
+        }
+
+        var mesh = new Mesh
+        {
+            name = "ProceduralPencilSilhouette",
+            vertices = vertices,
+            triangles = triangles.ToArray()
+        };
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    private void CreatePencilPart(
+        Transform parent,
+        string objectName,
+        Vector3 localPosition,
+        Vector3 localScale,
+        Material material)
     {
         var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
         part.name = objectName;
@@ -392,7 +472,7 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         var renderer = part.GetComponent<MeshRenderer>();
         if (renderer != null)
         {
-            renderer.sharedMaterial = _iconMaterial;
+            renderer.sharedMaterial = material != null ? material : _iconMaterial;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
         }
@@ -722,13 +802,16 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
 
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
-            if (_iconMaterial != null)
+            var replacementMaterial = renderer.gameObject.name.EndsWith("Cutout") && _plateMaterial != null
+                ? _plateMaterial
+                : _iconMaterial;
+            if (replacementMaterial != null)
             {
                 var materialCount = Mathf.Max(1, renderer.sharedMaterials.Length);
                 var materials = new Material[materialCount];
                 for (var j = 0; j < materials.Length; j++)
                 {
-                    materials[j] = _iconMaterial;
+                    materials[j] = replacementMaterial;
                 }
 
                 renderer.sharedMaterials = materials;
