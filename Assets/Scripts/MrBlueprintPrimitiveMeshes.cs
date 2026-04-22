@@ -119,7 +119,7 @@ public static class MrBlueprintPrimitiveMeshes
             0, 2, 4, 0, 4, 3, 0, 3, 5, 0, 5, 2,
             1, 4, 2, 1, 3, 4, 1, 5, 3, 1, 2, 5,
         };
-        return BuildMesh(verts, tris);
+        return BuildMesh(verts, tris, flipWinding: true);
     }
 
     private static Mesh BuildSquarePyramid()
@@ -139,7 +139,7 @@ public static class MrBlueprintPrimitiveMeshes
             0, 2, 1, 0, 3, 2, 0, 4, 3, 0, 1, 4,
             1, 2, 3, 1, 3, 4,
         };
-        return BuildMesh(verts, tris);
+        return BuildMesh(verts, tris, flipWinding: true);
     }
 
     private static Mesh BuildTriangularPrism()
@@ -167,7 +167,7 @@ public static class MrBlueprintPrimitiveMeshes
             1, 4, 5, 1, 5, 2,
             2, 5, 3, 2, 3, 0,
         };
-        return BuildMesh(verts, tris);
+        return BuildMesh(verts, tris, flipWinding: true);
     }
 
     private static Mesh BuildHexagonalPrism()
@@ -194,11 +194,11 @@ public static class MrBlueprintPrimitiveMeshes
         }
 
         for (var i = 1; i < n - 1; i++)
-            tris.AddRange(new[] { 0, i, i + 1 });
+            tris.AddRange(new[] { 0, i + 1, i });
 
         var top0 = n;
         for (var i = 1; i < n - 1; i++)
-            tris.AddRange(new[] { top0, top0 + i + 1, top0 + i });
+            tris.AddRange(new[] { top0, top0 + i, top0 + i + 1 });
 
         return BuildMesh(verts, tris);
     }
@@ -225,7 +225,7 @@ public static class MrBlueprintPrimitiveMeshes
         for (var i = 1; i < segments; i++)
             tris.AddRange(new[] { 1, i + 2, i + 1 });
 
-        return BuildMesh(verts, tris);
+        return BuildMesh(verts, tris, flipWinding: true);
     }
 
     private static Mesh BuildHemisphere(int lon, int latHalf)
@@ -267,7 +267,7 @@ public static class MrBlueprintPrimitiveMeshes
             tris.AddRange(new[] { baseI, baseI + ix + 1, baseI + ix });
         }
 
-        return BuildMesh(verts, tris);
+        return BuildMesh(verts, tris, flipWinding: true);
     }
 
     private static Mesh BuildTorus(int majorSeg, int minorSeg, float majorR, float minorR)
@@ -301,7 +301,7 @@ public static class MrBlueprintPrimitiveMeshes
             }
         }
 
-        return BuildMesh(verts, tris);
+        return BuildMesh(verts, tris, flipWinding: true);
     }
 
     private static Mesh BuildIcosahedron()
@@ -333,8 +333,18 @@ public static class MrBlueprintPrimitiveMeshes
         return BuildMesh(verts, tris);
     }
 
-    private static Mesh BuildMesh(List<Vector3> verts, List<int> tris)
+    private static Mesh BuildMesh(List<Vector3> verts, List<int> tris, bool flipWinding = false)
     {
+        if (flipWinding)
+        {
+            for (var i = 0; i < tris.Count; i += 3)
+            {
+                var b = tris[i + 1];
+                tris[i + 1] = tris[i + 2];
+                tris[i + 2] = b;
+            }
+        }
+
         var mesh = new Mesh
         {
             indexFormat = tris.Count > 65535

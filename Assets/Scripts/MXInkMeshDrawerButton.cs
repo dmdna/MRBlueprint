@@ -1,17 +1,29 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 [DisallowMultipleComponent]
 [RequireComponent(typeof(XRDrawerItem))]
 public sealed class MXInkMeshDrawerButton : MonoBehaviour
 {
     private const string ButtonName = "DrawerItem_MeshDrawingToggle";
+    private const string PencilPrefabPath = "Assets/Prefabs/pencil.fbx";
 
     [SerializeField] private XRContentDrawerController drawerController;
+    [SerializeField] private GameObject pencilPrefab;
     [SerializeField] private Vector3 localPosition = new(0.56f, 0.47f, -0.055f);
     [SerializeField] private Vector2 buttonSize = new(0.11f, 0.11f);
     [SerializeField] private float buttonDepth = 0.018f;
+    [SerializeField] private float pencilMargin = 0.006f;
+    [SerializeField] private float pencilSurfaceOffset = 0.0025f;
+    [SerializeField] private bool pencilTipAtPositiveLongAxis;
+    [SerializeField] private float xMargin = 0.014f;
+    [SerializeField] private float xBarThickness = 0.011f;
+    [SerializeField] private float xBarDepth = 0.004f;
+    [SerializeField] private float xSurfaceOffset = 0.003f;
     [SerializeField] private Color inactiveColor = new(0.1f, 0.34f, 0.5f, 0.96f);
     [SerializeField] private Color activeColor = new(0.56f, 0.14f, 0.16f, 0.96f);
     [SerializeField] private Color iconColor = Color.white;
@@ -20,10 +32,11 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
     private MeshRenderer _plateRenderer;
     private Material _plateMaterial;
     private Material _iconMaterial;
-    private LineRenderer _pencilLineA;
-    private LineRenderer _pencilLineB;
-    private LineRenderer _xLineA;
-    private LineRenderer _xLineB;
+    private Transform _pencilIconRoot;
+    private GameObject _pencilModelInstance;
+    private GameObject _xBarA;
+    private GameObject _xBarB;
+    private int _lastLayoutChildCount = -1;
     private bool _contentHidden;
 
     public static MXInkMeshDrawerButton EnsureForDrawer(XRContentDrawerController drawer)
@@ -40,8 +53,9 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
             return existing;
         }
 
+        var parent = ResolveDrawerItemParent(drawer);
         var root = new GameObject(ButtonName);
-        root.transform.SetParent(drawer.DrawerRoot, false);
+        root.transform.SetParent(parent != null ? parent : drawer.DrawerRoot, false);
         root.transform.localPosition = new Vector3(0.56f, 0.47f, -0.055f);
         root.transform.localRotation = Quaternion.identity;
         root.transform.localScale = Vector3.one;
@@ -53,6 +67,7 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         button.Configure(drawer);
         button.EnsureVisuals();
         button.RefreshVisualState();
+        button.EnsureDrawerGridSlot(forceLayout: true);
         return button;
     }
 
@@ -99,7 +114,12 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
             drawerController = FindFirstObjectByType<XRContentDrawerController>(FindObjectsInactive.Include);
         }
 
-        transform.localPosition = localPosition;
+        var inGrid = EnsureDrawerGridSlot(forceLayout: false);
+        if (!inGrid)
+        {
+            transform.localPosition = localPosition;
+        }
+
         transform.localRotation = Quaternion.identity;
         ApplyDrawerContentVisibility();
     }
@@ -109,7 +129,15 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         if (drawer != null)
         {
             drawerController = drawer;
+            if (drawer.MeshDrawingButtonPencilPrefab != null)
+            {
+                pencilPrefab = drawer.MeshDrawingButtonPencilPrefab;
+            }
         }
+
+        EnsureDrawerGridSlot(forceLayout: true);
+        EnsurePencilModel();
+        RefreshVisualState();
     }
 
     public void ToggleMeshDrawingMode()
@@ -155,20 +183,51 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         }
 
         _hiddenSiblings.Clear();
-        var drawerRoot = drawerController.DrawerRoot;
-        for (var i = 0; i < drawerRoot.childCount; i++)
-        {
-            var child = drawerRoot.GetChild(i);
-            if (child == transform || child.IsChildOf(transform))
-            {
-                continue;
-            }
+        var contentParent = ResolveContentVisibilityParent();
+        HideChildrenUnder(contentParent);
 
-            _hiddenSiblings.Add(new TransformState(child, child.gameObject.activeSelf));
-            child.gameObject.SetActive(false);
+        if (drawerController != null && drawerController.DrawerRoot != contentParent)
+        {
+            HideChildrenUnder(drawerController.DrawerRoot);
         }
 
+
         _contentHidden = true;
+    }
+
+    private void HideChildrenUnder(Transform parent)
+    {
+        if (parent == null)
+        {
+            return;
+        }
+
+        for (var i = 0; i < parent.childCount; i++)
+        {
+            TryHideDrawerTransform(parent.GetChild(i));
+        }
+    }
+
+    private void TryHideDrawerTransform(Transform target)
+    {
+        if (target == null
+            || target == transform
+            || transform.IsChildOf(target)
+            || target.IsChildOf(transform))
+        {
+            return;
+        }
+
+        for (var i = 0; i < _hiddenSiblings.Count; i++)
+        {
+            if (_hiddenSiblings[i].Transform == target)
+            {
+                return;
+            }
+        }
+
+        _hiddenSiblings.Add(new TransformState(target, target.gameObject.activeSelf));
+        target.gameObject.SetActive(false);
     }
 
     private void RestoreDrawerContent()
@@ -204,10 +263,9 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
             SetMaterialColor(_plateMaterial, color);
         }
 
-        SetLineVisible(_pencilLineA, !active);
-        SetLineVisible(_pencilLineB, !active);
-        SetLineVisible(_xLineA, active);
-        SetLineVisible(_xLineB, active);
+        SetPencilVisible(!active);
+        ApplyXBarLayout();
+        SetXVisible(active);
     }
 
     private void EnsureVisuals()
@@ -222,7 +280,7 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         drawerItem.SetIdleAnimation(0f, 1f, 0f);
 
         _plateMaterial = CreateMaterial("MXInkMeshDrawerButtonPlate", inactiveColor);
-        _iconMaterial = CreateMaterial("MXInkMeshDrawerButtonIcon", iconColor);
+        _iconMaterial = CreateOpaqueIconMaterial("MXInkMeshDrawerButtonIcon", iconColor);
 
         var plate = GameObject.CreatePrimitive(PrimitiveType.Cube);
         plate.name = "ButtonPlate";
@@ -247,68 +305,437 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
 
         pick.SetCaptionForRuntime(string.Empty);
 
-        _pencilLineA = CreateIconLine("PencilBody");
-        _pencilLineB = CreateIconLine("PencilTip");
-        _xLineA = CreateIconLine("CloseA");
-        _xLineB = CreateIconLine("CloseB");
-        ConfigureIconLines();
+        EnsurePencilModel();
+        _xBarA = CreateXBar("CloseA");
+        _xBarB = CreateXBar("CloseB");
+        ApplyXBarLayout();
     }
 
-    private LineRenderer CreateIconLine(string objectName)
+    private void EnsurePencilModel()
     {
-        var go = new GameObject(objectName);
-        go.transform.SetParent(transform, false);
-        go.transform.localPosition = new Vector3(0f, 0f, -buttonDepth * 0.65f);
-        go.transform.localRotation = Quaternion.identity;
+        if (_pencilIconRoot != null)
+        {
+            ApplyPencilLayout();
+            return;
+        }
 
-        var line = go.AddComponent<LineRenderer>();
-        line.sharedMaterial = _iconMaterial;
-        line.useWorldSpace = false;
-        line.alignment = LineAlignment.View;
-        line.textureMode = LineTextureMode.Stretch;
-        line.shadowCastingMode = ShadowCastingMode.Off;
-        line.receiveShadows = false;
-        line.startWidth = 0.012f;
-        line.endWidth = 0.012f;
-        line.startColor = iconColor;
-        line.endColor = iconColor;
-        line.positionCount = 2;
-        return line;
-    }
-
-    private void ConfigureIconLines()
-    {
-        SetLine(_pencilLineA, new Vector3(-0.032f, -0.026f, 0f), new Vector3(0.026f, 0.032f, 0f));
-        SetLine(_pencilLineB, new Vector3(0.026f, 0.032f, 0f), new Vector3(0.04f, 0.018f, 0f));
-        SetLine(_xLineA, new Vector3(-0.034f, -0.034f, 0f), new Vector3(0.034f, 0.034f, 0f));
-        SetLine(_xLineB, new Vector3(-0.034f, 0.034f, 0f), new Vector3(0.034f, -0.034f, 0f));
-    }
-
-    private static void SetLine(LineRenderer line, Vector3 a, Vector3 b)
-    {
-        if (line == null)
+        var prefab = ResolvePencilPrefab();
+        if (prefab == null)
         {
             return;
         }
 
-        line.SetPosition(0, a);
-        line.SetPosition(1, b);
+        var root = new GameObject("PencilIcon");
+        root.transform.SetParent(transform, false);
+        _pencilIconRoot = root.transform;
+
+        _pencilModelInstance = Instantiate(prefab, _pencilIconRoot);
+        _pencilModelInstance.name = "PencilModel";
+        _pencilModelInstance.transform.localPosition = Vector3.zero;
+        _pencilModelInstance.transform.localRotation = Quaternion.identity;
+        _pencilModelInstance.transform.localScale = Vector3.one;
+
+        RemoveModelColliders(_pencilModelInstance);
+        ConfigurePencilRenderers(_pencilModelInstance);
+        ApplyPencilLayout();
     }
 
-    private static void SetLineVisible(LineRenderer line, bool visible)
+    private GameObject ResolvePencilPrefab()
     {
-        if (line != null && line.enabled != visible)
+        if (pencilPrefab != null)
         {
-            line.enabled = visible;
+            return pencilPrefab;
+        }
+
+        if (drawerController != null && drawerController.MeshDrawingButtonPencilPrefab != null)
+        {
+            pencilPrefab = drawerController.MeshDrawingButtonPencilPrefab;
+            return pencilPrefab;
+        }
+
+#if UNITY_EDITOR
+        pencilPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PencilPrefabPath);
+#endif
+        return pencilPrefab;
+    }
+
+    private void ApplyPencilLayout()
+    {
+        if (_pencilIconRoot == null || _pencilModelInstance == null)
+        {
+            return;
+        }
+
+        _pencilIconRoot.localPosition = Vector3.zero;
+        _pencilIconRoot.localRotation = Quaternion.identity;
+        _pencilIconRoot.localScale = Vector3.one;
+
+        if (!TryGetLocalRenderBounds(_pencilIconRoot, out var localBounds))
+        {
+            return;
+        }
+
+        _pencilModelInstance.transform.localPosition -= localBounds.center;
+        if (!TryGetLocalRenderBounds(_pencilIconRoot, out localBounds))
+        {
+            return;
+        }
+
+        var longAxis = ResolveLongAxis(localBounds.size);
+        var targetAxis = (pencilTipAtPositiveLongAxis
+            ? new Vector3(-1f, -1f, 0f)
+            : new Vector3(1f, 1f, 0f)).normalized;
+        var rotation = Quaternion.FromToRotation(longAxis, targetAxis);
+        var rotatedBounds = CalculateRotatedBounds(localBounds, rotation);
+        var usableWidth = Mathf.Max(0.001f, buttonSize.x - pencilMargin * 2f);
+        var usableHeight = Mathf.Max(0.001f, buttonSize.y - pencilMargin * 2f);
+        var fitScale = Mathf.Min(
+            usableWidth / Mathf.Max(0.001f, rotatedBounds.size.x),
+            usableHeight / Mathf.Max(0.001f, rotatedBounds.size.y));
+        var crossSectionScale = Mathf.Min(1f, fitScale);
+        var lengthScale = ResolvePencilLengthScale(
+            localBounds,
+            rotation,
+            longAxis,
+            crossSectionScale,
+            usableWidth,
+            usableHeight);
+        var scale = BuildAxisScale(longAxis, crossSectionScale, lengthScale);
+        var scaledRotatedBounds = CalculateScaledRotatedBounds(localBounds, rotation, scale);
+
+        var frontFaceZ = -buttonDepth * 0.5f;
+        var localZ = frontFaceZ - pencilSurfaceOffset - scaledRotatedBounds.max.z;
+
+        _pencilIconRoot.localPosition = new Vector3(0f, 0f, localZ);
+        _pencilIconRoot.localRotation = rotation;
+        _pencilIconRoot.localScale = scale;
+    }
+
+    private static float ResolvePencilLengthScale(
+        Bounds bounds,
+        Quaternion rotation,
+        Vector3 longAxis,
+        float crossSectionScale,
+        float usableWidth,
+        float usableHeight)
+    {
+        var low = Mathf.Max(0.001f, crossSectionScale);
+        var high = Mathf.Max(1f, low);
+
+        for (var i = 0; i < 16 && FitsButtonFace(bounds, rotation, BuildAxisScale(longAxis, crossSectionScale, high), usableWidth, usableHeight); i++)
+        {
+            high *= 2f;
+        }
+
+        for (var i = 0; i < 24; i++)
+        {
+            var mid = (low + high) * 0.5f;
+            if (FitsButtonFace(bounds, rotation, BuildAxisScale(longAxis, crossSectionScale, mid), usableWidth, usableHeight))
+            {
+                low = mid;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    private static Vector3 BuildAxisScale(Vector3 longAxis, float crossSectionScale, float lengthScale)
+    {
+        if (Mathf.Abs(longAxis.x) > 0.5f)
+        {
+            return new Vector3(lengthScale, crossSectionScale, crossSectionScale);
+        }
+
+        if (Mathf.Abs(longAxis.y) > 0.5f)
+        {
+            return new Vector3(crossSectionScale, lengthScale, crossSectionScale);
+        }
+
+        return new Vector3(crossSectionScale, crossSectionScale, lengthScale);
+    }
+
+    private static bool FitsButtonFace(
+        Bounds bounds,
+        Quaternion rotation,
+        Vector3 scale,
+        float usableWidth,
+        float usableHeight)
+    {
+        var scaledBounds = CalculateScaledRotatedBounds(bounds, rotation, scale);
+        return scaledBounds.size.x <= usableWidth + 0.0001f
+               && scaledBounds.size.y <= usableHeight + 0.0001f;
+    }
+
+    private static Vector3 ResolveLongAxis(Vector3 size)
+    {
+        if (size.x >= size.y && size.x >= size.z)
+        {
+            return Vector3.right;
+        }
+
+        return size.y >= size.z ? Vector3.up : Vector3.forward;
+    }
+
+    private static Bounds CalculateRotatedBounds(Bounds bounds, Quaternion rotation)
+    {
+        return CalculateScaledRotatedBounds(bounds, rotation, Vector3.one);
+    }
+
+    private static Bounds CalculateScaledRotatedBounds(Bounds bounds, Quaternion rotation, Vector3 scale)
+    {
+        var min = new Vector3(float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity);
+        var max = new Vector3(float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+        var center = bounds.center;
+        var extents = bounds.extents;
+
+        for (var x = -1; x <= 1; x += 2)
+        {
+            for (var y = -1; y <= 1; y += 2)
+            {
+                for (var z = -1; z <= 1; z += 2)
+                {
+                    var corner = center + Vector3.Scale(extents, new Vector3(x, y, z));
+                    var rotated = rotation * Vector3.Scale(corner, scale);
+                    min = Vector3.Min(min, rotated);
+                    max = Vector3.Max(max, rotated);
+                }
+            }
+        }
+
+        var rotatedBounds = new Bounds();
+        rotatedBounds.SetMinMax(min, max);
+        return rotatedBounds;
+    }
+
+    private static bool TryGetLocalRenderBounds(Transform root, out Bounds bounds)
+    {
+        bounds = default;
+        var renderers = root.GetComponentsInChildren<Renderer>(true);
+        var hasBounds = false;
+
+        for (var i = 0; i < renderers.Length; i++)
+        {
+            var renderer = renderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            var rendererBounds = renderer.bounds;
+            var center = rendererBounds.center;
+            var extents = rendererBounds.extents;
+            for (var x = -1; x <= 1; x += 2)
+            {
+                for (var y = -1; y <= 1; y += 2)
+                {
+                    for (var z = -1; z <= 1; z += 2)
+                    {
+                        var worldCorner = center + Vector3.Scale(extents, new Vector3(x, y, z));
+                        var localCorner = root.InverseTransformPoint(worldCorner);
+                        if (hasBounds)
+                        {
+                            bounds.Encapsulate(localCorner);
+                        }
+                        else
+                        {
+                            bounds = new Bounds(localCorner, Vector3.zero);
+                            hasBounds = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return hasBounds;
+    }
+
+    private bool EnsureDrawerGridSlot(bool forceLayout)
+    {
+        if (drawerController == null)
+        {
+            return false;
+        }
+
+        var parent = ResolveDrawerItemParent(drawerController);
+        if (parent == null)
+        {
+            return false;
+        }
+
+        var grid = parent.GetComponent<DrawerGridLayout3D>();
+        var changed = false;
+        if (transform.parent != parent)
+        {
+            transform.SetParent(parent, false);
+            changed = true;
+        }
+
+        if (transform.GetSiblingIndex() != parent.childCount - 1)
+        {
+            transform.SetAsLastSibling();
+            changed = true;
+        }
+
+        if (grid == null)
+        {
+            if (changed || forceLayout)
+            {
+                transform.localPosition = localPosition;
+                GetComponent<XRDrawerItem>()?.SyncRestPoseFromTransform();
+            }
+
+            return false;
+        }
+
+        if (changed || forceLayout || _lastLayoutChildCount != parent.childCount)
+        {
+            grid.LayoutChildren();
+            _lastLayoutChildCount = parent.childCount;
+        }
+
+        return true;
+    }
+
+    private Transform ResolveContentVisibilityParent()
+    {
+        if (transform.parent != null && transform.parent.GetComponent<DrawerGridLayout3D>() != null)
+        {
+            return transform.parent;
+        }
+
+        return drawerController != null && drawerController.DrawerRoot != null
+            ? drawerController.DrawerRoot
+            : transform.parent;
+    }
+
+    private static Transform ResolveDrawerItemParent(XRContentDrawerController drawer)
+    {
+        if (drawer == null || drawer.DrawerRoot == null)
+        {
+            return null;
+        }
+
+        var grid = drawer.DrawerRoot.GetComponentInChildren<DrawerGridLayout3D>(true);
+        return grid != null ? grid.transform : drawer.DrawerRoot;
+    }
+
+    private static void RemoveModelColliders(GameObject modelRoot)
+    {
+        var colliders = modelRoot.GetComponentsInChildren<Collider>(true);
+        for (var i = 0; i < colliders.Length; i++)
+        {
+            if (Application.isPlaying)
+            {
+                Destroy(colliders[i]);
+            }
+            else
+            {
+                DestroyImmediate(colliders[i]);
+            }
+        }
+    }
+
+    private static void ConfigurePencilRenderers(GameObject modelRoot)
+    {
+        var renderers = modelRoot.GetComponentsInChildren<Renderer>(true);
+        for (var i = 0; i < renderers.Length; i++)
+        {
+            var renderer = renderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+    }
+
+    private GameObject CreateXBar(string objectName)
+    {
+        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        bar.name = objectName;
+        bar.transform.SetParent(transform, false);
+
+        var renderer = bar.GetComponent<MeshRenderer>();
+        renderer.sharedMaterial = _iconMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+
+        var collider = bar.GetComponent<Collider>();
+        if (collider != null)
+        {
+            collider.enabled = false;
+            DestroyUnityObject(collider);
+        }
+
+        return bar;
+    }
+
+    private void ApplyXBarLayout()
+    {
+        if (_xBarA == null || _xBarB == null)
+        {
+            return;
+        }
+
+        var insetSquareSize = Mathf.Max(0.001f, Mathf.Min(buttonSize.x, buttonSize.y) - xMargin * 2f);
+        var thickness = Mathf.Min(Mathf.Max(0.001f, xBarThickness), insetSquareSize * 0.35f);
+        var length = Mathf.Max(0.001f, insetSquareSize * Mathf.Sqrt(2f) - thickness);
+        var z = -buttonDepth * 0.5f - xSurfaceOffset - xBarDepth * 0.5f;
+
+        ApplyXBarTransform(_xBarA, 45f, length, thickness, z);
+        ApplyXBarTransform(_xBarB, -45f, length, thickness, z);
+    }
+
+    private void ApplyXBarTransform(GameObject bar, float angle, float length, float thickness, float z)
+    {
+        bar.transform.localPosition = new Vector3(0f, 0f, z);
+        bar.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
+        bar.transform.localScale = new Vector3(length, thickness, xBarDepth);
+    }
+
+    private void SetXVisible(bool visible)
+    {
+        SetGameObjectVisible(_xBarA, visible);
+        SetGameObjectVisible(_xBarB, visible);
+    }
+
+    private void SetPencilVisible(bool visible)
+    {
+        SetGameObjectVisible(_pencilIconRoot != null ? _pencilIconRoot.gameObject : null, visible);
+    }
+
+    private static void SetGameObjectVisible(GameObject go, bool visible)
+    {
+        if (go != null && go.activeSelf != visible)
+        {
+            go.SetActive(visible);
+        }
+    }
+
+    private static void DestroyUnityObject(Object obj)
+    {
+        if (Application.isPlaying)
+        {
+            Destroy(obj);
+        }
+        else
+        {
+            DestroyImmediate(obj);
         }
     }
 
     private static Material CreateMaterial(string materialName, Color color)
     {
-        var shader = Shader.Find("MRBlueprint/RayNoStackTransparent")
-                     ?? Shader.Find("Universal Render Pipeline/Unlit")
-                     ?? Shader.Find("Sprites/Default")
+        var shader = Shader.Find("Universal Render Pipeline/Unlit")
                      ?? Shader.Find("Unlit/Color")
+                     ?? Shader.Find("Universal Render Pipeline/Lit")
+                     ?? Shader.Find("Sprites/Default")
                      ?? Shader.Find("Standard");
         if (shader == null)
         {
@@ -326,9 +753,48 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         material.SetOverrideTag("RenderType", "Transparent");
         material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
         material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
-        material.SetInt("_ZWrite", 0);
+        material.SetInt("_ZWrite", 1);
+        if (material.HasProperty("_ZTest"))
+        {
+            material.SetInt("_ZTest", (int)CompareFunction.LessEqual);
+        }
+
         material.EnableKeyword("_ALPHABLEND_ON");
-        material.renderQueue = (int)RenderQueue.Transparent + 24;
+        material.renderQueue = (int)RenderQueue.Transparent - 10;
+        return material;
+    }
+
+    private static Material CreateOpaqueIconMaterial(string materialName, Color color)
+    {
+        var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                     ?? Shader.Find("Unlit/Color")
+                     ?? Shader.Find("Universal Render Pipeline/Lit")
+                     ?? Shader.Find("Standard");
+        if (shader == null)
+        {
+            return null;
+        }
+
+        color.a = 1f;
+        var material = new Material(shader)
+        {
+            name = materialName,
+            color = color,
+            enableInstancing = true,
+            renderQueue = (int)RenderQueue.Geometry + 20
+        };
+
+        SetMaterialColor(material, color);
+        material.SetOverrideTag("RenderType", "Opaque");
+        material.SetInt("_SrcBlend", (int)BlendMode.One);
+        material.SetInt("_DstBlend", (int)BlendMode.Zero);
+        material.SetInt("_ZWrite", 1);
+        material.DisableKeyword("_ALPHABLEND_ON");
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 0f);
+        }
+
         return material;
     }
 

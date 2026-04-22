@@ -33,6 +33,8 @@ public class VrStylusHandler : StylusHandler
 
     public Transform TipTransform => _tip != null ? _tip.transform : transform;
     public bool IsTrackingStylus => _stylus.isActive && _currentTrackedDevice.isValid;
+    public bool IsMXInkMeshVisible => _mxInk_model != null ? _mxInk_model.activeInHierarchy : IsTrackingStylus;
+    public bool IsMXInkDetectedAndUsable => IsTrackingStylus && IsMXInkMeshVisible && CanDraw();
 
     [SerializeField]
     private InputActionReference _middleActionRef;

@@ -1198,6 +1198,7 @@ MonoBehaviour:
   verticalOffset: -0.1
   faceCamera: 1
   isOpen: 0
+  meshDrawingButtonPencilPrefab: {fileID: 100000, guid: da5b243b65a441f4a856b585ae551ec6, type: 3}
 --- !u!4 &395236581
 Transform:
   m_ObjectHideFlags: 0

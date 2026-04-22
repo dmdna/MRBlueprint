@@ -497,13 +497,13 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         titleRt.anchorMax = new Vector2(0.5f, 0.5f);
         titleRt.pivot = new Vector2(0.5f, 0.5f);
         titleRt.anchoredPosition = new Vector2(0f, 142f);
-        titleRt.sizeDelta = new Vector2(420f, 34f);
+        titleRt.sizeDelta = new Vector2(300f, 34f);
         var title = titleGo.AddComponent<Text>();
         MrBlueprintUiFont.Apply(title, font);
         title.text = "Options";
         title.fontSize = 20;
         title.color = OptionsTextPrimary;
-        title.alignment = TextAnchor.MiddleCenter;
+        title.alignment = TextAnchor.MiddleLeft;
         title.raycastTarget = false;
 
         CreateOptionsAccentRule(panel.transform, new Vector2(0f, 116f), 300f);
@@ -539,6 +539,18 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             new Vector2(0f, -140f),
             new Vector2(170f, 36f),
             () => SetOptionsVisible(false));
+
+        MXInkStatusPill.Create(
+            panel.transform,
+            font,
+            "MXInkOptionsStatus",
+            new Vector2(1f, 1f),
+            new Vector2(1f, 1f),
+            new Vector2(1f, 1f),
+            new Vector2(-16f, -14f),
+            new Vector2(178f, 26f),
+            13,
+            7f);
 
         _optionsCreditsRoot = HomeMenuController.BuildCreditsPanel(
             _optionsOverlayRoot.transform,

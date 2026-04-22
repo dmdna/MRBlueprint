@@ -201,6 +201,15 @@ public class HomeMenuController : MonoBehaviour
             BuildTitleFallback(canvasGo.transform, font);
 
         CreateMenuButton(canvasGo.transform, font, "Start", startButtonAnchoredPosition, new Vector2(280f, 52f), LoadEditor);
+        MXInkStatusPill.Create(
+            canvasGo.transform,
+            font,
+            "MXInkHomeStatus",
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.5f, 0.5f),
+            startButtonAnchoredPosition + new Vector2(0f, -42f),
+            new Vector2(280f, 24f));
         CreateMenuButton(canvasGo.transform, font, "Credits", creditsButtonAnchoredPosition, new Vector2(200f, 40f), ShowCredits);
         CreateMenuButton(canvasGo.transform, font, "Quit", quitButtonAnchoredPosition, new Vector2(200f, 40f), QuitApp);
 

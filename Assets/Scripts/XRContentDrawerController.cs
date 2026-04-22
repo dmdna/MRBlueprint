@@ -30,11 +30,15 @@ public class XRContentDrawerController : MonoBehaviour
     [SerializeField] private bool depthSortRaysWithDrawerItems = true;
     [SerializeField] private int drawerItemDepthRenderQueue = (int)RenderQueue.Transparent - 10;
 
+    [Header("Mesh Drawing Button")]
+    [SerializeField] private GameObject meshDrawingButtonPencilPrefab;
+
     private readonly List<Material> _runtimeDrawerMaterials = new();
     private bool _drawerRenderingConfigured;
 
     public bool IsOpen => isOpen;
     public Transform DrawerRoot => drawerRoot;
+    public GameObject MeshDrawingButtonPencilPrefab => meshDrawingButtonPencilPrefab;
     public XRControlMode CurrentMode =>
         SandboxEditorModeState.Current == SandboxEditorSessionMode.Draw
             ? XRControlMode.Drawing
