@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -12,6 +13,11 @@ using UnityEngine.SceneManagement;
 public class SandboxEditorToolbarFrame : MonoBehaviour
 {
     private const int MinimumOverlaySortingOrder = 500;
+    private const float ToolbarRowHorizontalInset = 14f;
+    private const float ToolbarRowVerticalInset = 4f;
+    private const float ToolbarButtonSpacing = 6f;
+    private const float SessionModeLabelPreferredWidth = 132f;
+    private const float SessionModeLabelTextInset = 10f;
     private static readonly Color OptionsPanelBackground = new Color(0.035f, 0.04f, 0.048f, 0.98f);
     private static readonly Color OptionsPanelAccent = new Color(0.22f, 0.62f, 1f, 1f);
     private static readonly Color OptionsTextPrimary = new Color(0.93f, 0.97f, 1f, 1f);
@@ -46,13 +52,16 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
     private GameObject _mainToolbarBar;
     private GameObject _simToolbarBar;
     private GameObject _drawToolbarBar;
+    private SandboxEditorToolbarTooltipHost _toolbarTooltipHost;
     private Button _drawModeToolbarButton;
     private Toggle _soundEffectsMuteToggle;
     private RawImage _simPauseButtonIcon;
     private Texture2D _texPause;
     private Texture2D _texResume;
     private SandboxSimulationController _simulation;
-    private Text _sessionModeLabelText;
+    private readonly List<Text> _sessionModeLabelTexts = new List<Text>(3);
+    private readonly List<RectTransform> _toolbarBarRects = new List<RectTransform>(3);
+    private float _sharedToolbarWidth;
     private MRSettingsController _mrSettingsController;
     private MRSettingsUI _mrSettingsUI;
 
@@ -115,11 +124,23 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private void RefreshSessionModeLabel()
     {
-        if (_sessionModeLabelText == null)
+        if (_sessionModeLabelTexts.Count == 0)
             return;
 
-        var mode = SandboxEditorModeState.Current;
-        _sessionModeLabelText.text = "Mode: " + SandboxEditorModeState.GetDisplayLabel(mode);
+        var label = "Mode: " + GetCurrentToolbarModeLabel();
+        for (var i = 0; i < _sessionModeLabelTexts.Count; i++)
+        {
+            if (_sessionModeLabelTexts[i] != null)
+                _sessionModeLabelTexts[i].text = label;
+        }
+    }
+
+    private string GetCurrentToolbarModeLabel()
+    {
+        if (_simulation != null && _simulation.IsSimulating)
+            return "Simulation";
+
+        return SandboxEditorModeState.GetDisplayLabel(SandboxEditorModeState.Current);
     }
 
     private static void EnsureEventSystem()
@@ -191,6 +212,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         tooltipHostGo.transform.SetParent(canvasGo.transform, false);
         var tooltipHost = tooltipHostGo.AddComponent<SandboxEditorToolbarTooltipHost>();
         tooltipHost.Setup(canvasRect, canvas);
+        _toolbarTooltipHost = tooltipHost;
 
         var bar = new GameObject("ToolbarBar");
         _mainToolbarBar = bar;
@@ -206,12 +228,12 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var rowRt = row.AddComponent<RectTransform>();
         rowRt.anchorMin = Vector2.zero;
         rowRt.anchorMax = Vector2.one;
-        rowRt.offsetMin = new Vector2(8f, 4f);
-        rowRt.offsetMax = new Vector2(-8f, -4f);
+        rowRt.offsetMin = new Vector2(ToolbarRowHorizontalInset, ToolbarRowVerticalInset);
+        rowRt.offsetMax = new Vector2(-ToolbarRowHorizontalInset, -ToolbarRowVerticalInset);
 
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
-        hlg.childAlignment = TextAnchor.MiddleCenter;
-        hlg.spacing = 6f;
+        hlg.childAlignment = TextAnchor.MiddleLeft;
+        hlg.spacing = ToolbarButtonSpacing;
         hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
@@ -224,13 +246,13 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         {
             ("Home", "icon_Home", true, OnHomeClicked, "Go to main menu"),
             ("Draw", "icon_Draw", true, OnDrawClicked,
-                "Draw mode — stylus strokes apply to nearby cubes/spheres: flick → impulse, straight line → spring"),
-            ("Options", "icon_Build", true, OnOptionsClicked, "Options"),
+                "Drawing mode - gestures: flick -> impulse; straight line -> spring; circle -> hinge"),
+            ("Options", "icon_Build", true, OnOptionsClicked, "Options and MR settings"),
             ("Simulate", "icon_Simulate", true, OnSimulateClicked,
-                "Simulate — run physics with each object’s gravity; exit restores layout from when you started"),
-            ("Drawer", "icon_ContentDrawer", true, OnDrawerClicked, "Open or close the content drawer"),
-            ("Clear", "icon_Trash", true, OnClearSceneClicked, "Remove all placed objects from the scene"),
-            ("Help", "icon_Help", true, OnHelpClicked, "Show or hide keyboard / control hints"),
+                "Start physics simulation"),
+            ("Drawer", "icon_ContentDrawer", true, OnDrawerClicked, "Toggle content drawer"),
+            ("Clear", "icon_Trash", true, OnClearSceneClicked, "Clear all objects and physics"),
+            ("Help", "icon_Help", true, OnHelpClicked, "Controls and shortcuts"),
         };
 
         for (var i = 0; i < slots.Length; i++)
@@ -238,6 +260,8 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             var (slotId, iconFileBase, wired, onClick, tooltip) = slots[i];
             AddSlotButton(row.transform, slotId, iconFileBase, wired, onClick, tooltipHost, tooltip);
         }
+
+        FitToolbarBarToRow(barRt, hlg);
 
         var drawSlot = row.transform.Find("DrawSlot");
         if (drawSlot != null)
@@ -255,7 +279,7 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
         var le = go.AddComponent<LayoutElement>();
         le.flexibleWidth = 0f;
-        le.preferredWidth = 132f;
+        le.preferredWidth = SessionModeLabelPreferredWidth;
         le.minWidth = 98f;
 
         var t = go.AddComponent<Text>();
@@ -265,13 +289,28 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         t.alignment = TextAnchor.MiddleLeft;
         t.horizontalOverflow = HorizontalWrapMode.Overflow;
         t.verticalOverflow = VerticalWrapMode.Truncate;
-        _sessionModeLabelText = t;
 
         var rt = t.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(4f, 0f);
+        rt.offsetMin = new Vector2(SessionModeLabelTextInset, 0f);
         rt.offsetMax = Vector2.zero;
+
+        _sessionModeLabelTexts.Add(t);
+        RefreshSessionModeLabel();
+    }
+
+    private void AddToolbarSlotSpacer(Transform parent, string slotId)
+    {
+        var go = new GameObject(slotId + "Spacer");
+        go.transform.SetParent(parent, false);
+        var side = Mathf.Max(36f, barHeight - 8f);
+        var le = go.AddComponent<LayoutElement>();
+        le.flexibleWidth = 0f;
+        le.minWidth = side;
+        le.preferredWidth = side;
+        le.minHeight = side;
+        le.preferredHeight = side;
     }
 
     private static Texture2D TryLoadToolbarIcon(string iconFileBase)
@@ -319,21 +358,25 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var rowRt = row.AddComponent<RectTransform>();
         rowRt.anchorMin = Vector2.zero;
         rowRt.anchorMax = Vector2.one;
-        rowRt.offsetMin = new Vector2(8f, 4f);
-        rowRt.offsetMax = new Vector2(-8f, -4f);
+        rowRt.offsetMin = new Vector2(ToolbarRowHorizontalInset, ToolbarRowVerticalInset);
+        rowRt.offsetMax = new Vector2(-ToolbarRowHorizontalInset, -ToolbarRowVerticalInset);
 
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
-        hlg.childAlignment = TextAnchor.MiddleCenter;
-        hlg.spacing = 8f;
+        hlg.childAlignment = TextAnchor.MiddleLeft;
+        hlg.spacing = ToolbarButtonSpacing;
         hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
 
+        AddSessionModeLabel(row.transform);
+
+        AddToolbarSlotSpacer(row.transform, "SimHiddenHome");
+        AddToolbarSlotSpacer(row.transform, "SimHiddenDraw");
         AddSlotButton(row.transform, "SimExit", "icon_Stop", true, OnExitSimulationClicked, tooltipHost,
-            "Exit simulation — restore poses from when you started");
+            "Exit simulation and restore the starting layout");
         AddSlotButton(row.transform, "SimPause", "icon_Pause", true, OnTogglePauseClicked, tooltipHost,
-            "Pause or resume physics stepping");
+            "Pause/Resume simulation");
 
         var pauseSlot = row.transform.Find("SimPauseSlot");
         if (pauseSlot != null)
@@ -347,7 +390,11 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             _simPauseButtonIcon.texture = _texPause;
 
         AddSlotButton(row.transform, "SimRestart", "icon_Restart", true, OnRestartSimulationClicked, tooltipHost,
-            "Restart — rewind to sim start and keep running");
+            "Restart simulation from the saved starting layout");
+        AddToolbarSlotSpacer(row.transform, "SimHiddenClear");
+        AddToolbarSlotSpacer(row.transform, "SimHiddenHelp");
+
+        FitToolbarBarToRow(simBarRt, hlg);
 
         _simToolbarBar.SetActive(false);
     }
@@ -367,23 +414,31 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         var rowRt = row.AddComponent<RectTransform>();
         rowRt.anchorMin = Vector2.zero;
         rowRt.anchorMax = Vector2.one;
-        rowRt.offsetMin = new Vector2(8f, 4f);
-        rowRt.offsetMax = new Vector2(-8f, -4f);
+        rowRt.offsetMin = new Vector2(ToolbarRowHorizontalInset, ToolbarRowVerticalInset);
+        rowRt.offsetMax = new Vector2(-ToolbarRowHorizontalInset, -ToolbarRowVerticalInset);
 
         var hlg = row.AddComponent<HorizontalLayoutGroup>();
-        hlg.childAlignment = TextAnchor.MiddleCenter;
-        hlg.spacing = 8f;
+        hlg.childAlignment = TextAnchor.MiddleLeft;
+        hlg.spacing = ToolbarButtonSpacing;
         hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
 
+        AddSessionModeLabel(row.transform);
+
+        AddToolbarSlotSpacer(row.transform, "DrawHiddenHome");
+        AddToolbarSlotSpacer(row.transform, "DrawHiddenDrawToggle");
         AddSlotButton(row.transform, "Edit", "icon_Door", true, OnExitDrawClicked, tooltipHost,
-            "Return to edit mode — place objects, drawer, simulate");
+            "Return to edit mode - place objects, open the drawer, and simulate");
         AddSlotButton(row.transform, "DrawUndoLast", "icon_Scissors", true, OnDrawUndoLastStrokeClicked, tooltipHost,
-            "Remove last stroke (same as stylus line undo when no line is selected)");
+            "Undo the last drawn stroke");
         AddSlotButton(row.transform, "DrawClearAll", "icon_Trash", true, OnDrawClearAllStrokesClicked, tooltipHost,
             "Clear all drawn strokes");
+        AddToolbarSlotSpacer(row.transform, "DrawHiddenClear");
+        AddToolbarSlotSpacer(row.transform, "DrawHiddenHelp");
+
+        FitToolbarBarToRow(drawBarRt, hlg);
 
         _drawToolbarBar.SetActive(false);
     }
@@ -395,15 +450,15 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
         if (toolbarAtBottom)
         {
-            rect.anchorMin = new Vector2(0f, 0f);
-            rect.anchorMax = new Vector2(1f, 0f);
+            rect.anchorMin = new Vector2(0.5f, 0f);
+            rect.anchorMax = new Vector2(0.5f, 0f);
             rect.pivot = new Vector2(0.5f, 0f);
             rect.anchoredPosition = new Vector2(0f, Mathf.Max(0, rowOffsetFromEdge) * barHeight);
         }
         else
         {
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(1f, 1f);
+            rect.anchorMin = new Vector2(0.5f, 1f);
+            rect.anchorMax = new Vector2(0.5f, 1f);
             rect.pivot = new Vector2(0.5f, 1f);
             rect.anchoredPosition = new Vector2(0f, -Mathf.Max(0, rowOffsetFromEdge) * barHeight);
         }
@@ -411,9 +466,66 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
         rect.sizeDelta = new Vector2(0f, barHeight);
     }
 
+    private void FitToolbarBarToRow(RectTransform barRect, HorizontalLayoutGroup rowLayout)
+    {
+        if (barRect == null || rowLayout == null)
+            return;
+
+        var width = 0f;
+        var activeLayoutChildren = 0;
+        var rowRt = rowLayout.GetComponent<RectTransform>();
+        if (rowRt != null)
+            width += Mathf.Max(0f, rowRt.offsetMin.x - rowRt.offsetMax.x);
+
+        var row = rowLayout.transform;
+        for (var i = 0; i < row.childCount; i++)
+        {
+            var child = row.GetChild(i);
+            if (child == null || !child.gameObject.activeSelf)
+                continue;
+
+            var layoutElement = child.GetComponent<LayoutElement>();
+            if (layoutElement != null && layoutElement.ignoreLayout)
+                continue;
+
+            var childRt = child as RectTransform;
+            var preferredWidth = 0f;
+            if (layoutElement != null)
+                preferredWidth = Mathf.Max(layoutElement.minWidth, layoutElement.preferredWidth);
+            if (preferredWidth <= 0f && childRt != null)
+                preferredWidth = Mathf.Max(LayoutUtility.GetPreferredWidth(childRt), childRt.sizeDelta.x);
+
+            width += Mathf.Max(0f, preferredWidth);
+            activeLayoutChildren++;
+        }
+
+        if (activeLayoutChildren > 1)
+            width += rowLayout.spacing * (activeLayoutChildren - 1);
+
+        RegisterToolbarBarWidth(barRect, Mathf.Ceil(width));
+    }
+
+    private void RegisterToolbarBarWidth(RectTransform barRect, float preferredWidth)
+    {
+        if (barRect == null)
+            return;
+
+        if (!_toolbarBarRects.Contains(barRect))
+            _toolbarBarRects.Add(barRect);
+
+        _sharedToolbarWidth = Mathf.Max(_sharedToolbarWidth, preferredWidth);
+        for (var i = 0; i < _toolbarBarRects.Count; i++)
+        {
+            if (_toolbarBarRects[i] != null)
+                _toolbarBarRects[i].SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, _sharedToolbarWidth);
+        }
+    }
+
     private void AddSlotButton(Transform parent, string slotId, string iconFileBase, bool wired,
         UnityEngine.Events.UnityAction onClick, SandboxEditorToolbarTooltipHost tooltipHost, string tooltip)
     {
+        tooltip = ResolveToolbarTooltip(slotId, tooltip);
+
         var go = new GameObject(slotId + "Slot");
         go.transform.SetParent(parent, false);
         var side = Mathf.Max(36f, barHeight - 8f);
@@ -480,6 +592,43 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
             var trig = go.AddComponent<SandboxEditorToolbarTooltipTrigger>();
             trig.Initialize(tooltipHost, go.GetComponent<RectTransform>(), tooltip);
         }
+    }
+
+    private static string ResolveToolbarTooltip(string slotId, string tooltip)
+    {
+        switch (slotId)
+        {
+            case "Home":
+                return "Go to main menu";
+            case "Draw":
+                return "Drawing mode - gestures: flick -> impulse; straight line -> spring; circle -> hinge";
+            case "Options":
+                return "Options and MR settings";
+            case "Simulate":
+                return "Start physics simulation";
+            case "Drawer":
+                return "Toggle content drawer";
+            case "Clear":
+                return "Clear all objects and physics";
+            case "Help":
+                return "Controls and shortcuts";
+            case "SimExit":
+                return "Exit simulation and restore the starting layout";
+            case "SimPause":
+                return "Pause/Resume simulation";
+            case "SimRestart":
+                return "Restart simulation from the saved starting layout";
+            case "Edit":
+                return "Return to edit mode - place objects, open the drawer, and simulate";
+            case "DrawUndoLast":
+                return "Undo the last drawn stroke";
+            case "DrawClearAll":
+                return "Clear all drawn strokes";
+        }
+
+        return !string.IsNullOrEmpty(tooltip) && tooltip.Trim().Length > 0
+            ? tooltip.Trim()
+            : "Toolbar action";
     }
 
     private void BuildOptionsOverlay()
@@ -774,12 +923,15 @@ public class SandboxEditorToolbarFrame : MonoBehaviour
 
     private void OnSimulationStateChanged()
     {
+        RefreshSessionModeLabel();
         RefreshShellBarsVisibility();
         ApplyDrawModeInteractionPolicy();
     }
 
     private void RefreshShellBarsVisibility()
     {
+        _toolbarTooltipHost?.Hide();
+
         var sim = _simulation != null && _simulation.IsSimulating;
         var draw = SandboxEditorModeState.Current == SandboxEditorSessionMode.Draw;
 

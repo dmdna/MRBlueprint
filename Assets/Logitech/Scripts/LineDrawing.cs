@@ -970,7 +970,17 @@ public sealed class LineArrowTip : MonoBehaviour
             return;
         }
 
-        _meshRenderer.material.color = color;
+        var material = _meshRenderer.material;
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
     }
 
     public void SetAuraVisible(

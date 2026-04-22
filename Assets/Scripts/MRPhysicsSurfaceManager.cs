@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Meta.XR.MRUtilityKit;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using XRCommonUsages = UnityEngine.XR.CommonUsages;
 using XRInputDevice = UnityEngine.XR.InputDevice;
 using XRInputDeviceCharacteristics = UnityEngine.XR.InputDeviceCharacteristics;
@@ -31,14 +32,19 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
     [SerializeField] private Color fallbackFloorColor = new(0.25f, 0.75f, 1f, 0.22f);
     [SerializeField] private float joystickAdjustSpeed = 0.35f;
     [SerializeField] private float joystickDeadzone = 0.18f;
+    [SerializeField] private float controllerGrabGripThreshold = 0.55f;
+    [SerializeField] private float grabInteractableRefreshInterval = 0.5f;
 
     private readonly List<XRInputDevice> _xrDevices = new();
     private readonly Dictionary<Renderer, Material[]> _effectMeshRuntimeMaterials = new();
+    private XRGrabInteractable[] _grabInteractables = new XRGrabInteractable[0];
     private GameObject _fallbackFloor;
     private Transform _fallbackFloorTransform;
     private Renderer _fallbackFloorRenderer;
     private Material _fallbackFloorMaterial;
     private PhysicsMaterial _surfacePhysicsMaterial;
+    private PlaceableTransformGizmo _transformGizmo;
+    private float _nextGrabInteractableRefreshTime;
     private int _physicsSurfaceLayer;
     private bool _effectMeshesEnabled = true;
     private bool _effectMeshCollidersEnabled = true;
@@ -513,7 +519,7 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
 
     private void AdjustFallbackFloorFromControllers()
     {
-        if (PlaceableMultiGrabCoordinator.AnyGrabActive)
+        if (IsAnyObjectGrabOrDragActive())
         {
             return;
         }
@@ -528,6 +534,122 @@ public class MRPhysicsSurfaceManager : MonoBehaviour
         }
 
         fallbackFloorY += vertical * joystickAdjustSpeed * Time.deltaTime;
+    }
+
+    private bool IsAnyObjectGrabOrDragActive()
+    {
+        if (NonStylusControllerRayVisuals.AnyControllerGrabActive
+            || IsEndpointDragActive(PlaceableMultiGrabCoordinator.MXInkSourceId)
+            || IsEndpointDragActive(PlaceableMultiGrabCoordinator.DirectStylusSourceId)
+            || IsTransformGizmoDragging()
+            || IsAnySelectedDraggableGrabInteractable())
+        {
+            return true;
+        }
+
+        // Floor height runs in Update, while some grab systems publish selection later in the frame.
+        // Treating a held controller grip as grab intent prevents a one-frame floor-height jump.
+        return IsControllerGripPressed(LeftControllerCharacteristics)
+               || IsControllerGripPressed(RightControllerCharacteristics);
+    }
+
+    private static bool IsEndpointDragActive(int sourceId)
+    {
+        return PhysicsDrawingEndpointHandle.IsSourceRayDragging(sourceId);
+    }
+
+    private bool IsTransformGizmoDragging()
+    {
+        if (_transformGizmo == null)
+        {
+            _transformGizmo = FindFirstObjectByType<PlaceableTransformGizmo>(FindObjectsInactive.Include);
+        }
+
+        return _transformGizmo != null && _transformGizmo.IsDragging;
+    }
+
+    private bool IsAnySelectedDraggableGrabInteractable()
+    {
+        RefreshGrabInteractablesIfNeeded();
+
+        for (var i = 0; i < _grabInteractables.Length; i++)
+        {
+            var grabInteractable = _grabInteractables[i];
+            if (grabInteractable != null
+                && grabInteractable.isActiveAndEnabled
+                && grabInteractable.isSelected
+                && IsDraggableGrabInteractable(grabInteractable))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void RefreshGrabInteractablesIfNeeded()
+    {
+        if (_grabInteractables.Length > 0
+            && Time.unscaledTime < _nextGrabInteractableRefreshTime
+            && !HasMissingGrabInteractable())
+        {
+            return;
+        }
+
+        _grabInteractables = FindObjectsByType<XRGrabInteractable>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        _nextGrabInteractableRefreshTime = Time.unscaledTime
+                                           + Mathf.Max(0.05f, grabInteractableRefreshInterval);
+    }
+
+    private bool HasMissingGrabInteractable()
+    {
+        for (var i = 0; i < _grabInteractables.Length; i++)
+        {
+            if (_grabInteractables[i] == null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsDraggableGrabInteractable(XRGrabInteractable grabInteractable)
+    {
+        return grabInteractable.GetComponentInParent<PlaceableAsset>() != null
+               || grabInteractable.GetComponentInParent<PhysicsDrawingSelectable>() != null
+               || grabInteractable.GetComponentInParent<SelectableAsset>() != null;
+    }
+
+    private bool IsControllerGripPressed(XRInputDeviceCharacteristics characteristics)
+    {
+        _xrDevices.Clear();
+        XRInputDevices.GetDevicesWithCharacteristics(characteristics, _xrDevices);
+
+        for (var i = 0; i < _xrDevices.Count; i++)
+        {
+            var device = _xrDevices[i];
+            if (!device.isValid || IsLogitechStylus(device))
+            {
+                continue;
+            }
+
+            if (device.TryGetFeatureValue(XRCommonUsages.gripButton, out var gripPressed)
+                && gripPressed)
+            {
+                return true;
+            }
+
+            if (device.TryGetFeatureValue(XRCommonUsages.grip, out var gripValue)
+                && gripValue >= controllerGrabGripThreshold)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private float ReadJoystickVertical(XRInputDeviceCharacteristics characteristics)

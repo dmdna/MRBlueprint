@@ -18,8 +18,10 @@ public static class PlaceableMultiGrabCoordinator
     private static readonly HashSet<PlaceableAsset> RotationLockedPlaceables = new();
     private static readonly List<int> ScratchSourceIds = new();
     private static readonly List<PlaceableAsset> ScratchPlaceables = new();
+    private static readonly List<PhysicsDrawingSelectable> ScratchDrawings = new();
 
     private static MultiGrabState _multiGrab;
+    private static int _lastAttachmentPreviewRefreshFrame = -1;
 
     public static bool AnyGrabActive
     {
@@ -890,13 +892,34 @@ public static class PlaceableMultiGrabCoordinator
 
     private static void RefreshAttachmentPreviews()
     {
+        if (_lastAttachmentPreviewRefreshFrame == Time.frameCount)
+        {
+            return;
+        }
+
+        _lastAttachmentPreviewRefreshFrame = Time.frameCount;
+        ScratchDrawings.Clear();
         foreach (var grab in ActiveGrabs.Values)
         {
-            if (grab.Target != null && grab.Target.IsDrawing)
+            if (grab.Target == null || !grab.Target.IsDrawing || grab.Target.Drawing == null)
             {
-                UpdateDrawingAttachmentPreview(grab.Target.Drawing);
+                continue;
             }
+
+            if (ScratchDrawings.Contains(grab.Target.Drawing))
+            {
+                continue;
+            }
+
+            ScratchDrawings.Add(grab.Target.Drawing);
         }
+
+        for (var i = 0; i < ScratchDrawings.Count; i++)
+        {
+            UpdateDrawingAttachmentPreview(ScratchDrawings[i]);
+        }
+
+        ScratchDrawings.Clear();
     }
 
     private static void UpdateDrawingAttachmentPreview(PhysicsDrawingSelectable drawing)

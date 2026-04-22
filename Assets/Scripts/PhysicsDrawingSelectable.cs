@@ -912,15 +912,20 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
     public void RebuildColliders()
     {
         ResolveReferences();
-        ClearColliders();
         RefreshSelectionAuraGeometry();
         RefreshEndpointHandles();
+        RefreshPickSegmentColliders();
+    }
 
+    private void RefreshPickSegmentColliders()
+    {
         if (_lineRenderer == null || _lineRenderer.positionCount < 2)
         {
+            TrimPickSegmentColliders(0);
             return;
         }
 
+        var activeCount = 0;
         for (var i = 0; i < _lineRenderer.positionCount - 1; i++)
         {
             var start = _lineRenderer.GetPosition(i);
@@ -932,18 +937,67 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
                 continue;
             }
 
-            var colliderObject = new GameObject("DrawingPickSegment");
-            colliderObject.transform.SetParent(transform, true);
+            var colliderObject = GetOrCreatePickSegmentCollider(activeCount);
+            if (colliderObject.transform.parent != transform)
+            {
+                colliderObject.transform.SetParent(transform, true);
+            }
+
+            if (!colliderObject.activeSelf)
+            {
+                colliderObject.SetActive(true);
+            }
+
             colliderObject.transform.position = (start + end) * 0.5f;
             colliderObject.transform.rotation = Quaternion.FromToRotation(Vector3.up, segment.normalized);
             colliderObject.layer = gameObject.layer;
 
-            var capsule = colliderObject.AddComponent<CapsuleCollider>();
+            var capsule = colliderObject.GetComponent<CapsuleCollider>();
+            if (capsule == null)
+            {
+                capsule = colliderObject.AddComponent<CapsuleCollider>();
+            }
+
             capsule.isTrigger = true;
             capsule.direction = 1;
             capsule.radius = Mathf.Max(0.001f, colliderRadius);
             capsule.height = length + capsule.radius * 2f;
-            _colliders.Add(colliderObject);
+            activeCount++;
+        }
+
+        TrimPickSegmentColliders(activeCount);
+    }
+
+    private GameObject GetOrCreatePickSegmentCollider(int index)
+    {
+        while (_colliders.Count <= index)
+        {
+            _colliders.Add(null);
+        }
+
+        var colliderObject = _colliders[index];
+        if (colliderObject != null)
+        {
+            return colliderObject;
+        }
+
+        colliderObject = new GameObject("DrawingPickSegment");
+        colliderObject.transform.SetParent(transform, true);
+        colliderObject.layer = gameObject.layer;
+        _colliders[index] = colliderObject;
+        return colliderObject;
+    }
+
+    private void TrimPickSegmentColliders(int activeCount)
+    {
+        for (var i = _colliders.Count - 1; i >= activeCount; i--)
+        {
+            if (_colliders[i] != null)
+            {
+                Destroy(_colliders[i]);
+            }
+
+            _colliders.RemoveAt(i);
         }
     }
 
@@ -1135,29 +1189,11 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         var best = default(LinearAttachmentProbe);
         var bestScore = float.MaxValue;
 
-        if (PlaceableSurfaceUtility.TryGetClosestVisibleMeshPoint(
-                placeable,
-                endpointPoint,
-                out var visualSurface))
-        {
-            if (visualSurface.Distance > linearAttachmentSurfaceTolerance)
-            {
-                return false;
-            }
-
-            var visualNormal = ResolveAttachmentSurfaceNormal(
-                visualSurface,
-                endpointPoint,
-                oppositePoint);
-            probe = BuildLinearAttachmentProbe(
-                endpoint,
-                visualSurface.Point,
-                visualNormal,
-                visualSurface.Distance,
-                visualSurface.Distance,
-                visualSurface.Distance <= AttachmentContactEpsilon);
-            return true;
-        }
+        var hasVisualSurface = PlaceableSurfaceUtility.TryGetClosestVisibleMeshPoint(
+            placeable,
+            endpointPoint,
+            out var visualSurface);
+        var maxSurfaceSnapDistance = Mathf.Max(linearAttachmentSurfaceTolerance, attachmentSnapDistance);
 
         for (var i = 0; i < colliders.Length; i++)
         {
@@ -1205,7 +1241,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
                     edgeDistance,
                     true);
                 var score = edgeDistance;
-                if (!hasSurface || score < bestScore)
+                if (!hasSurface || !best.EndpointInside || score < bestScore)
                 {
                     hasSurface = true;
                     best = candidate;
@@ -1215,7 +1251,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
                 continue;
             }
 
-            if (closestDistance > linearAttachmentSurfaceTolerance)
+            if (closestDistance > maxSurfaceSnapDistance)
             {
                 continue;
             }
@@ -1237,11 +1273,32 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
                 closestDistance,
                 closestDistance,
                 false);
-            if (!hasSurface || closestDistance < bestScore)
+            if (!hasSurface || (!best.EndpointInside && closestDistance < bestScore))
             {
                 hasSurface = true;
                 best = outsideCandidate;
                 bestScore = closestDistance;
+            }
+        }
+
+        if (hasVisualSurface && visualSurface.Distance <= maxSurfaceSnapDistance)
+        {
+            var visualNormal = ResolveAttachmentSurfaceNormal(
+                visualSurface,
+                endpointPoint,
+                oppositePoint);
+            var visualCandidate = BuildLinearAttachmentProbe(
+                endpoint,
+                visualSurface.Point,
+                visualNormal,
+                visualSurface.Distance,
+                visualSurface.Distance,
+                visualSurface.Distance <= AttachmentContactEpsilon);
+            if (!hasSurface || (!best.EndpointInside && visualSurface.Distance < bestScore))
+            {
+                hasSurface = true;
+                best = visualCandidate;
+                bestScore = visualSurface.Distance;
             }
         }
 
@@ -1767,9 +1824,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
 
     private Vector3 ResolveHingeAttachmentBodyPoint(PlaceableAsset placeable)
     {
-        return TryResolveHingeRingAttachmentPoint(placeable, out var bodyPoint, out _)
-            ? bodyPoint
-            : ResolvePlaceableCenter(placeable);
+        return ResolvePlaceableCenterOfMass(placeable);
     }
 
     private bool TryResolveHingeRingAttachmentPoint(
@@ -1788,15 +1843,6 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         if (positions.Length < 2)
         {
             return false;
-        }
-
-        if (TryResolveHingeRingAttachmentPointForVisibleMesh(
-                placeable,
-                positions,
-                out bodyPoint,
-                out distance))
-        {
-            return true;
         }
 
         var hasCandidate = false;
@@ -1834,70 +1880,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
             return true;
         }
 
-        var boundsPoint = bounds.ClosestPoint(ResolveHingeAttachmentCenter());
-        bodyPoint = boundsPoint;
-        distance = GetDistanceFromPointToHingeRing(positions, boundsPoint);
-        return true;
-    }
-
-    private bool TryResolveHingeRingAttachmentPointForVisibleMesh(
-        PlaceableAsset placeable,
-        IReadOnlyList<Vector3> ringPositions,
-        out Vector3 bodyPoint,
-        out float distance)
-    {
-        bodyPoint = default;
-        distance = float.MaxValue;
-        if (placeable == null || ringPositions == null || ringPositions.Count < 2)
-        {
-            return false;
-        }
-
-        var hasCandidate = false;
-        var center = ResolvePlaceableCenter(placeable);
-        var segmentCount = GetHingeRingSegmentCount(ringPositions);
-        for (var i = 0; i < segmentCount; i++)
-        {
-            var start = ringPositions[i];
-            var end = ringPositions[(i + 1) % ringPositions.Count];
-            if ((end - start).sqrMagnitude <= 0.00000001f)
-            {
-                continue;
-            }
-
-            var ringPoint = ClosestPointOnSegment(start, end, center);
-            if (!PlaceableSurfaceUtility.TryGetClosestVisibleMeshPoint(
-                    placeable,
-                    ringPoint,
-                    out var surface))
-            {
-                continue;
-            }
-
-            for (var iteration = 0; iteration < 2; iteration++)
-            {
-                ringPoint = ClosestPointOnSegment(start, end, surface.Point);
-                if (!PlaceableSurfaceUtility.TryGetClosestVisibleMeshPoint(
-                        placeable,
-                        ringPoint,
-                        out surface))
-                {
-                    break;
-                }
-            }
-
-            var candidateDistance = Vector3.Distance(ringPoint, surface.Point);
-            if (candidateDistance >= distance)
-            {
-                continue;
-            }
-
-            hasCandidate = true;
-            bodyPoint = surface.Point;
-            distance = candidateDistance;
-        }
-
-        return hasCandidate;
+        return TryResolveHingeRingAttachmentPointForBounds(bounds, positions, out bodyPoint, out distance);
     }
 
     private bool TryResolveHingeRingAttachmentPointForCollider(
@@ -1913,6 +1896,22 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
             return false;
         }
 
+        return TryResolveHingeRingAttachmentPointForBounds(collider.bounds, ringPositions, out bodyPoint, out distance);
+    }
+
+    private bool TryResolveHingeRingAttachmentPointForBounds(
+        Bounds bounds,
+        IReadOnlyList<Vector3> ringPositions,
+        out Vector3 bodyPoint,
+        out float distance)
+    {
+        bodyPoint = default;
+        distance = float.MaxValue;
+        if (bounds.size.sqrMagnitude <= 0.000001f || ringPositions == null || ringPositions.Count < 2)
+        {
+            return false;
+        }
+
         var hasCandidate = false;
         var segmentCount = GetHingeRingSegmentCount(ringPositions);
         for (var i = 0; i < segmentCount; i++)
@@ -1924,28 +1923,12 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
                 continue;
             }
 
-            var ringPoint = ClosestPointOnSegment(start, end, collider.bounds.center);
-            if (!PlaceableSurfaceUtility.TryGetClosestColliderPoint(
-                    collider,
-                    ringPoint,
-                    out var surface))
-            {
-                continue;
-            }
-
-            var colliderPoint = surface.Point;
+            var ringPoint = ClosestPointOnSegment(start, end, bounds.center);
+            var colliderPoint = bounds.ClosestPoint(ringPoint);
             for (var iteration = 0; iteration < 2; iteration++)
             {
                 ringPoint = ClosestPointOnSegment(start, end, colliderPoint);
-                if (!PlaceableSurfaceUtility.TryGetClosestColliderPoint(
-                        collider,
-                        ringPoint,
-                        out surface))
-                {
-                    break;
-                }
-
-                colliderPoint = surface.Point;
+                colliderPoint = bounds.ClosestPoint(ringPoint);
             }
 
             var candidateDistance = Vector3.Distance(ringPoint, colliderPoint);
@@ -2856,6 +2839,18 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         return TryGetPlaceableWorldBounds(placeable, out var bounds)
             ? bounds.center
             : placeable.transform.position;
+    }
+
+    private static Vector3 ResolvePlaceableCenterOfMass(PlaceableAsset placeable)
+    {
+        if (placeable == null)
+        {
+            return Vector3.zero;
+        }
+
+        return placeable.Rigidbody != null
+            ? placeable.Rigidbody.worldCenterOfMass
+            : ResolvePlaceableCenter(placeable);
     }
 
     private static bool TryGetPlaceableWorldBounds(PlaceableAsset placeable, out Bounds bounds)

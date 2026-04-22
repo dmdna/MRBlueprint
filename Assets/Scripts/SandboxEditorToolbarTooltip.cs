@@ -7,6 +7,13 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class SandboxEditorToolbarTooltipHost : MonoBehaviour
 {
+    private const float TooltipGap = 6f;
+    private const float TooltipMargin = 8f;
+    private const float TooltipMinWidth = 72f;
+    private const float TooltipMaxWidth = 320f;
+    private const float TooltipMinHeight = 30f;
+    private const float TooltipMaxHeight = 160f;
+
     private RectTransform _canvasRect;
     private Canvas _canvas;
     private RectTransform _panelRt;
@@ -21,7 +28,7 @@ public sealed class SandboxEditorToolbarTooltipHost : MonoBehaviour
         var panelGo = new GameObject("TooltipPanel");
         panelGo.transform.SetParent(transform, false);
         _panelRt = panelGo.AddComponent<RectTransform>();
-        _panelRt.anchorMin = _panelRt.anchorMax = new Vector2(0.5f, 0.5f);
+        _panelRt.anchorMin = _panelRt.anchorMax = new Vector2(0.5f, 0f);
         _panelRt.pivot = new Vector2(0.5f, 0f);
         _panelRt.gameObject.SetActive(false);
 
@@ -43,7 +50,7 @@ public sealed class SandboxEditorToolbarTooltipHost : MonoBehaviour
         _text.color = new Color(0.95f, 0.95f, 0.97f, 1f);
         _text.alignment = TextAnchor.MiddleCenter;
         _text.horizontalOverflow = HorizontalWrapMode.Wrap;
-        _text.verticalOverflow = VerticalWrapMode.Truncate;
+        _text.verticalOverflow = VerticalWrapMode.Overflow;
         _text.raycastTarget = false;
     }
 
@@ -52,15 +59,20 @@ public sealed class SandboxEditorToolbarTooltipHost : MonoBehaviour
         if (_panelRt == null || _text == null || slotRt == null || _canvasRect == null)
             return;
 
-        _text.text = string.IsNullOrEmpty(message) ? " " : message;
+        _text.text = !string.IsNullOrEmpty(message) && message.Trim().Length > 0
+            ? message.Trim()
+            : "Toolbar action";
         _panelRt.SetParent(_canvasRect, false);
         _panelRt.SetAsLastSibling();
+        _panelRt.gameObject.SetActive(true);
 
         Canvas.ForceUpdateCanvases();
         const float padX = 20f;
         const float padY = 14f;
-        var w = Mathf.Min(320f, Mathf.Max(72f, _text.preferredWidth + padX));
-        var h = Mathf.Min(96f, Mathf.Max(30f, _text.preferredHeight + padY));
+        var w = Mathf.Min(TooltipMaxWidth, Mathf.Max(TooltipMinWidth, _text.preferredWidth + padX));
+        _panelRt.sizeDelta = new Vector2(w, TooltipMaxHeight);
+        Canvas.ForceUpdateCanvases();
+        var h = Mathf.Min(TooltipMaxHeight, Mathf.Max(TooltipMinHeight, _text.preferredHeight + padY));
         _panelRt.sizeDelta = new Vector2(w, h);
 
         slotRt.GetWorldCorners(_corners);
@@ -70,14 +82,36 @@ public sealed class SandboxEditorToolbarTooltipHost : MonoBehaviour
         if (_canvas != null && _canvas.renderMode != RenderMode.ScreenSpaceOverlay)
             eventCam = _canvas.worldCamera != null ? _canvas.worldCamera : Camera.main;
 
-        var screen = RectTransformUtility.WorldToScreenPoint(eventCam, topMid);
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRect, screen, eventCam, out var local))
+        var topScreen = RectTransformUtility.WorldToScreenPoint(eventCam, topMid);
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRect, topScreen, eventCam, out var topLocal))
+        {
+            Hide();
             return;
+        }
 
-        _panelRt.anchorMin = _panelRt.anchorMax = new Vector2(0.5f, 0.5f);
-        _panelRt.pivot = new Vector2(0.5f, 0f);
-        _panelRt.anchoredPosition = local + new Vector2(0f, 10f);
-        _panelRt.gameObject.SetActive(true);
+        var canvasBounds = _canvasRect.rect;
+        var pivot = new Vector2(0.5f, 0f);
+        var position = topLocal + new Vector2(0f, TooltipGap);
+
+        if (_canvas == null || _canvas.renderMode != RenderMode.WorldSpace)
+        {
+            var minX = canvasBounds.xMin + TooltipMargin + (w * pivot.x);
+            var maxX = canvasBounds.xMax - TooltipMargin - (w * (1f - pivot.x));
+            var minY = canvasBounds.yMin + TooltipMargin + (h * pivot.y);
+            var maxY = canvasBounds.yMax - TooltipMargin - (h * (1f - pivot.y));
+            position = new Vector2(
+                ClampPivotPosition(position.x, minX, maxX),
+                ClampPivotPosition(position.y, minY, maxY));
+        }
+
+        _panelRt.anchorMin = _panelRt.anchorMax = new Vector2(0.5f, 0f);
+        _panelRt.pivot = pivot;
+        _panelRt.anchoredPosition = new Vector2(position.x, position.y - canvasBounds.yMin);
+    }
+
+    private static float ClampPivotPosition(float value, float min, float max)
+    {
+        return min <= max ? Mathf.Clamp(value, min, max) : (min + max) * 0.5f;
     }
 
     public void Hide()
