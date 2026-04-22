@@ -102,7 +102,9 @@ public class LineDrawing : MonoBehaviour
         _currentLine = lineRenderer;
         _currentLine.positionCount = 0;
         _currentLine.material = _material;
-        _currentLine.material.color = _currentColor;
+        ApplyMaterialColor(_currentLine.material, _currentColor);
+        _currentLine.startColor = _currentColor;
+        _currentLine.endColor = _currentColor;
         _currentLine.loop = false;
         _currentLine.startWidth = _minLineWidth;
         _currentLine.endWidth = _minLineWidth;
@@ -279,13 +281,35 @@ public class LineDrawing : MonoBehaviour
 
         if (lineRenderer.material != null)
         {
-            lineRenderer.material.color = color;
+            ApplyMaterialColor(lineRenderer.material, color);
         }
+
+        lineRenderer.startColor = color;
+        lineRenderer.endColor = color;
 
         var arrowTip = lineRenderer.GetComponent<LineArrowTip>();
         if (arrowTip != null)
         {
             arrowTip.SetColor(color);
+        }
+    }
+
+    private static void ApplyMaterialColor(Material material, Color color)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
         }
     }
 
@@ -647,12 +671,7 @@ public class LineDrawing : MonoBehaviour
         {
             var lineRenderer = line.GetComponent<LineRenderer>();
             _cachedColor = lineRenderer.material.color;
-            lineRenderer.material.color = highlightColor;
-            var arrowTip = line.GetComponent<LineArrowTip>();
-            if (arrowTip != null)
-            {
-                arrowTip.SetColor(highlightColor);
-            }
+            SetLineColor(lineRenderer, highlightColor);
         }
 
         //haptic click when highlighting a line
@@ -669,12 +688,7 @@ public class LineDrawing : MonoBehaviour
         else
         {
             var lineRenderer = line.GetComponent<LineRenderer>();
-            lineRenderer.material.color = _cachedColor;
-            var arrowTip = line.GetComponent<LineArrowTip>();
-            if (arrowTip != null)
-            {
-                arrowTip.SetColor(_cachedColor);
-            }
+            SetLineColor(lineRenderer, _cachedColor);
         }
 
         _highlightedLine = null;
@@ -914,7 +928,7 @@ public sealed class LineArrowTip : MonoBehaviour
 
         if (_meshRenderer.sharedMaterial == null || _meshRenderer.sharedMaterial == baseMaterial)
         {
-            _meshRenderer.material = new Material(baseMaterial);
+            _meshRenderer.sharedMaterial = CreateTipMaterial(baseMaterial, color);
         }
 
         _meshRenderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -971,6 +985,16 @@ public sealed class LineArrowTip : MonoBehaviour
         }
 
         var material = _meshRenderer.material;
+        ApplyMaterialColor(material, color);
+    }
+
+    private static void ApplyMaterialColor(Material material, Color color)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
         material.color = color;
         if (material.HasProperty("_BaseColor"))
         {
@@ -981,6 +1005,83 @@ public sealed class LineArrowTip : MonoBehaviour
         {
             material.SetColor("_Color", color);
         }
+    }
+
+    private static Material CreateTipMaterial(Material baseMaterial, Color color)
+    {
+        var shader = ResolveTipShader(baseMaterial);
+        if (shader == null && baseMaterial != null)
+        {
+            shader = baseMaterial.shader;
+        }
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Standard");
+        }
+
+        var material = shader != null
+            ? new Material(shader)
+            : new Material(baseMaterial);
+        material.name = "LineArrowTipMaterial";
+        material.enableInstancing = true;
+        if (baseMaterial != null && baseMaterial.renderQueue >= 0)
+        {
+            material.renderQueue = baseMaterial.renderQueue;
+        }
+
+        ConfigureTipMaterial(material);
+        ApplyMaterialColor(material, color);
+        return material;
+    }
+
+    private static Shader ResolveTipShader(Material baseMaterial)
+    {
+        var baseShader = baseMaterial != null ? baseMaterial.shader : null;
+        var baseShaderName = baseShader != null ? baseShader.name : string.Empty;
+        if (baseShader != null
+            && baseShaderName.IndexOf("Lit", StringComparison.OrdinalIgnoreCase) < 0
+            && baseShaderName.IndexOf("Standard", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return baseShader;
+        }
+
+        return Shader.Find("Universal Render Pipeline/Unlit")
+               ?? Shader.Find("Sprites/Default")
+               ?? Shader.Find("Unlit/Color")
+               ?? Shader.Find("MRBlueprint/PhysicsDrawingAuraMaxBlend")
+               ?? baseShader;
+    }
+
+    private static void ConfigureTipMaterial(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+        }
+
+        if (material.HasProperty("_Blend"))
+        {
+            material.SetFloat("_Blend", 0f);
+        }
+
+        if (material.HasProperty("_Cull"))
+        {
+            material.SetFloat("_Cull", (float)CullMode.Off);
+        }
+
+        material.SetOverrideTag("RenderType", "Transparent");
+        material.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+        material.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+        material.SetInt("_ZWrite", 0);
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.EnableKeyword("_ALPHABLEND_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
     }
 
     public void SetAuraVisible(

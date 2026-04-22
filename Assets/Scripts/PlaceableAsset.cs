@@ -45,12 +45,14 @@ public class PlaceableAsset : MonoBehaviour
             targetRenderers = GetComponentsInChildren<Renderer>();
         }
 
+        EnsureScaleAwareColliders();
         CacheColliders();
 
         if (rb != null)
             gravityWhenSimulating = rb.useGravity;
 
         ApplyPhysicsMaterialToColliders();
+        RefreshRigidbodyMassProperties();
     }
 
     private void Start()
@@ -124,8 +126,9 @@ public class PlaceableAsset : MonoBehaviour
 
     public void SetScale(Vector3 newScale)
     {
+        EnsureScaleAwareColliders();
         transform.localScale = newScale;
-        Physics.SyncTransforms();
+        RefreshPhysicsShape();
     }
 
     public Vector3 GetPosition()
@@ -282,6 +285,47 @@ public class PlaceableAsset : MonoBehaviour
         }
     }
 
+    private void EnsureScaleAwareColliders()
+    {
+        var sphereColliders = GetComponentsInChildren<SphereCollider>(true);
+        for (var i = 0; i < sphereColliders.Length; i++)
+        {
+            var sphere = sphereColliders[i];
+            if (sphere == null || sphere.isTrigger || !sphere.enabled)
+            {
+                continue;
+            }
+
+            if (sphere.GetComponent<MeshCollider>() != null)
+            {
+                continue;
+            }
+
+            var meshFilter = sphere.GetComponent<MeshFilter>();
+            if (meshFilter == null || meshFilter.sharedMesh == null)
+            {
+                continue;
+            }
+
+            var meshCollider = sphere.gameObject.AddComponent<MeshCollider>();
+            meshCollider.sharedMesh = meshFilter.sharedMesh;
+            meshCollider.convex = true;
+            meshCollider.sharedMaterial = sphere.sharedMaterial;
+
+            sphere.enabled = false;
+            if (Application.isPlaying)
+            {
+                Destroy(sphere);
+            }
+            else
+            {
+                DestroyImmediate(sphere);
+            }
+
+            _colliders = null;
+        }
+    }
+
     private void ApplyPhysicsMaterialToColliders()
     {
         CacheColliders();
@@ -304,13 +348,31 @@ public class PlaceableAsset : MonoBehaviour
         for (var i = 0; i < _colliders.Length; i++)
         {
             var collider = _colliders[i];
-            if (collider == null || collider.isTrigger)
+            if (collider == null || !collider.enabled || collider.isTrigger)
             {
                 continue;
             }
 
             collider.sharedMaterial = _runtimePhysicsMaterial;
         }
+    }
+
+    private void RefreshPhysicsShape()
+    {
+        Physics.SyncTransforms();
+        RefreshRigidbodyMassProperties();
+    }
+
+    private void RefreshRigidbodyMassProperties()
+    {
+        if (rb == null)
+        {
+            return;
+        }
+
+        rb.ResetCenterOfMass();
+        rb.ResetInertiaTensor();
+        rb.WakeUp();
     }
 
     public PlaceableAsset Duplicate()

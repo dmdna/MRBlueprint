@@ -43,6 +43,10 @@ public sealed class MXInkEditableMeshTopology : MonoBehaviour
     {
         EnsureComponents();
         RebuildMesh();
+        if (TryGetComponent<Rigidbody>(out var rb))
+        {
+            EnsureAuthoredMeshTelemetry(rb);
+        }
     }
 
     private void OnEnable()
@@ -108,9 +112,24 @@ public sealed class MXInkEditableMeshTopology : MonoBehaviour
         go.AddComponent<SelectableAsset>();
         go.AddComponent<XRGrabInteractable>();
         go.AddComponent<PlaceableXRGrabBridge>();
-        go.AddComponent<CollisionEventCache>();
-        go.AddComponent<PhysicsLensForceEventCache>();
+        EnsureAuthoredMeshTelemetry(rb);
         return topology;
+    }
+
+    private static void EnsureAuthoredMeshTelemetry(Rigidbody rb)
+    {
+        if (rb == null)
+        {
+            return;
+        }
+
+        PhysicsLensManager.EnsureRuntimeManager();
+        SimulationVisualizationInstaller.EnsureRuntimeManager();
+        CollisionEventCache.GetOrAdd(rb);
+        if (rb.GetComponent<PhysicsLensForceEventCache>() == null)
+        {
+            rb.gameObject.AddComponent<PhysicsLensForceEventCache>();
+        }
     }
 
     public static int DeleteInvalidTopologies()

@@ -3062,7 +3062,7 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
                 ConfigureTransparentMaterial(_lineRenderer.material);
             }
 
-            _lineRenderer.material.color = color;
+            ApplyMaterialColor(_lineRenderer.material, color);
             _lineRenderer.startColor = color;
             _lineRenderer.endColor = color;
         }
@@ -3108,6 +3108,25 @@ public sealed class PhysicsDrawingSelectable : MonoBehaviour
         material.EnableKeyword("_ALPHABLEND_ON");
         material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
         material.renderQueue = (int)RenderQueue.Transparent;
+    }
+
+    private static void ApplyMaterialColor(Material material, Color color)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
     }
 
     private void RefreshSpringColor()

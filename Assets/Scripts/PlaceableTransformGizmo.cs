@@ -557,7 +557,10 @@ public sealed class PlaceableTransformGizmo : MonoBehaviour
         if (i == 0) ls.x = Mathf.Max(minScaleAxis, ls.x + along);
         else if (i == 1) ls.y = Mathf.Max(minScaleAxis, ls.y + along);
         else ls.z = Mathf.Max(minScaleAxis, ls.z + along);
-        _target.localScale = ls;
+        if (_placeableAsset != null)
+            _placeableAsset.SetScale(ls);
+        else
+            _target.localScale = ls;
     }
 
     private static int AxisIndex(GizmoHandleKind k)

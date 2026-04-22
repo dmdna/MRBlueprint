@@ -509,6 +509,7 @@ public static class PlaceableMultiGrabCoordinator
 
             RefreshOffsetsForTarget(grab.Target);
             RefreshSourceRotationSnapshotsForTarget(grab.Target);
+            RefreshMultiGrabSnapshotForTarget(grab.Target);
             snappedAny = true;
         }
 
@@ -637,9 +638,27 @@ public static class PlaceableMultiGrabCoordinator
             return;
         }
 
-        var targetCenter = currentMidpoint + _multiGrab.InitialCenterOffset * scaleFactor;
+        var placeableRotationLocked = target.IsPlaceable
+                                      && target.Placeable != null
+                                      && RotationLockedPlaceables.Contains(target.Placeable);
+        var placeableRotation = placeableRotationLocked
+            ? Quaternion.identity
+            : ResolveGrabRotation(_multiGrab.InitialGrabVector, second.GrabPoint - first.GrabPoint);
+        var targetCenter = currentMidpoint + placeableRotation * (_multiGrab.InitialCenterOffset * scaleFactor);
         target.SetScale(_multiGrab.InitialScale * scaleFactor);
-        MoveTarget(target, targetCenter);
+        if (target.IsPlaceable)
+        {
+            target.SetPose(
+                targetCenter,
+                placeableRotationLocked
+                    ? target.GetRotation()
+                    : placeableRotation * _multiGrab.InitialRotation);
+        }
+        else
+        {
+            MoveTarget(target, targetCenter);
+        }
+
         RefreshOffsetsForTarget(target);
     }
 
@@ -669,6 +688,7 @@ public static class PlaceableMultiGrabCoordinator
             InitialDistance = Mathf.Max(MinTwoPointDistance, Vector3.Distance(first.GrabPoint, second.GrabPoint)),
             InitialGrabVector = second.GrabPoint - first.GrabPoint,
             InitialScale = target.GetScale(),
+            InitialRotation = target.GetRotation(),
             InitialCenterOffset = ResolvePosition(target) - midpoint,
             InitialWorldPositions = target.SupportsWorldLineScaling
                 ? target.GetWorldLinePositions()
@@ -754,6 +774,28 @@ public static class PlaceableMultiGrabCoordinator
             grab.InitialWorldPositions = target.IsDrawing
                 ? target.GetWorldLinePositions()
                 : null;
+        }
+    }
+
+    private static void RefreshMultiGrabSnapshotForTarget(GrabTarget target)
+    {
+        if (target == null
+            || !target.IsValid
+            || !_multiGrab.IsActive
+            || _multiGrab.Target == null
+            || !_multiGrab.Target.SameAs(target))
+        {
+            return;
+        }
+
+        var grabCount = GetGrabCountForTarget(target, out var first, out var second);
+        if (grabCount >= 2 && second != null)
+        {
+            CaptureMultiGrab(target, first, second);
+        }
+        else
+        {
+            _multiGrab = default;
         }
     }
 
@@ -1074,6 +1116,7 @@ public static class PlaceableMultiGrabCoordinator
         public float InitialDistance;
         public Vector3 InitialGrabVector;
         public Vector3 InitialScale;
+        public Quaternion InitialRotation;
         public Vector3 InitialCenterOffset;
         public Vector3[] InitialWorldPositions;
     }
