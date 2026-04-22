@@ -320,16 +320,18 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         }
 
         var prefab = ResolvePencilPrefab();
-        if (prefab == null)
-        {
-            return;
-        }
-
         var root = new GameObject("PencilIcon");
         root.transform.SetParent(transform, false);
         _pencilIconRoot = root.transform;
 
-        _pencilModelInstance = Instantiate(prefab, _pencilIconRoot);
+        _pencilModelInstance = prefab != null
+            ? Instantiate(prefab, _pencilIconRoot)
+            : CreateProceduralPencilIcon(_pencilIconRoot);
+        if (_pencilModelInstance == null)
+        {
+            return;
+        }
+
         _pencilModelInstance.name = "PencilModel";
         _pencilModelInstance.transform.localPosition = Vector3.zero;
         _pencilModelInstance.transform.localRotation = Quaternion.identity;
@@ -337,6 +339,13 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
 
         RemoveModelColliders(_pencilModelInstance);
         ConfigurePencilRenderers(_pencilModelInstance);
+        if (!HasRenderablePencil(_pencilModelInstance))
+        {
+            DestroyUnityObject(_pencilModelInstance);
+            _pencilModelInstance = CreateProceduralPencilIcon(_pencilIconRoot);
+            ConfigurePencilRenderers(_pencilModelInstance);
+        }
+
         ApplyPencilLayout();
     }
 
@@ -357,6 +366,62 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         pencilPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PencilPrefabPath);
 #endif
         return pencilPrefab;
+    }
+
+    private GameObject CreateProceduralPencilIcon(Transform parent)
+    {
+        var root = new GameObject("ProceduralPencilIcon");
+        root.transform.SetParent(parent, false);
+
+        CreatePencilPart(root.transform, "Body", new Vector3(0.08f, 0f, 0f), new Vector3(0.68f, 0.12f, 0.05f));
+        CreatePencilPart(root.transform, "Tip", new Vector3(-0.34f, 0f, 0f), new Vector3(0.16f, 0.12f, 0.05f));
+        CreatePencilPart(root.transform, "Eraser", new Vector3(0.48f, 0f, 0f), new Vector3(0.12f, 0.12f, 0.05f));
+
+        return root;
+    }
+
+    private void CreatePencilPart(Transform parent, string objectName, Vector3 localPosition, Vector3 localScale)
+    {
+        var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        part.name = objectName;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPosition;
+        part.transform.localRotation = Quaternion.identity;
+        part.transform.localScale = localScale;
+
+        var renderer = part.GetComponent<MeshRenderer>();
+        if (renderer != null)
+        {
+            renderer.sharedMaterial = _iconMaterial;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+
+        var collider = part.GetComponent<Collider>();
+        if (collider != null)
+        {
+            collider.enabled = false;
+            DestroyUnityObject(collider);
+        }
+    }
+
+    private static bool HasRenderablePencil(GameObject modelRoot)
+    {
+        if (modelRoot == null)
+        {
+            return false;
+        }
+
+        var renderers = modelRoot.GetComponentsInChildren<Renderer>(true);
+        for (var i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] != null && renderers[i].enabled)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void ApplyPencilLayout()
@@ -639,8 +704,13 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
         }
     }
 
-    private static void ConfigurePencilRenderers(GameObject modelRoot)
+    private void ConfigurePencilRenderers(GameObject modelRoot)
     {
+        if (modelRoot == null)
+        {
+            return;
+        }
+
         var renderers = modelRoot.GetComponentsInChildren<Renderer>(true);
         for (var i = 0; i < renderers.Length; i++)
         {
@@ -652,6 +722,17 @@ public sealed class MXInkMeshDrawerButton : MonoBehaviour
 
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
+            if (_iconMaterial != null)
+            {
+                var materialCount = Mathf.Max(1, renderer.sharedMaterials.Length);
+                var materials = new Material[materialCount];
+                for (var j = 0; j < materials.Length; j++)
+                {
+                    materials[j] = _iconMaterial;
+                }
+
+                renderer.sharedMaterials = materials;
+            }
         }
     }
 
