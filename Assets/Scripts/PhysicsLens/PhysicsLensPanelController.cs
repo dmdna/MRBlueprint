@@ -510,15 +510,19 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
 
     private void SetGraphMode(PhysicsLensGraphMode mode)
     {
-        if (_graphMode == mode && _timelineRoot != null && _timelineRoot.gameObject.activeSelf == (mode == PhysicsLensGraphMode.MotionTimeline))
+        var timelineShouldBeActive = mode == PhysicsLensGraphMode.MotionTimeline;
+        var phaseShouldBeActive = !timelineShouldBeActive;
+        var timelineStateMatches = _timelineRoot != null && _timelineRoot.gameObject.activeSelf == timelineShouldBeActive;
+        var phaseStateMatches = _phaseRoot != null && _phaseRoot.gameObject.activeSelf == phaseShouldBeActive;
+        if (_graphMode == mode && timelineStateMatches && phaseStateMatches)
             return;
 
         _graphMode = mode;
         if (_timelineRoot != null)
-            _timelineRoot.gameObject.SetActive(mode == PhysicsLensGraphMode.MotionTimeline);
+            _timelineRoot.gameObject.SetActive(timelineShouldBeActive);
         if (_phaseRoot != null)
-            _phaseRoot.gameObject.SetActive(mode != PhysicsLensGraphMode.MotionTimeline);
-        if (_phase != null && mode != PhysicsLensGraphMode.MotionTimeline)
+            _phaseRoot.gameObject.SetActive(phaseShouldBeActive);
+        if (_phase != null && phaseShouldBeActive)
             _phase.SetMode(mode);
     }
 
@@ -535,7 +539,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
         if (graphMode == PhysicsLensGraphMode.HingePhaseRibbon)
         {
             SetHero(0, "Angle", constraint.HingeAngle.ToString("0.0") + " deg");
-            SetHero(1, "Torque", PhysicsLensFormat.ShortNumber(constraint.TorqueMagnitude, "N·m"));
+            SetHero(1, "Torque", PhysicsLensFormat.ShortNumber(constraint.TorqueMagnitude, "N*m"));
             SetHero(2, "Limit", PhysicsInsightGenerator.BuildConstraintLimitText(constraint));
             return;
         }
@@ -609,7 +613,7 @@ public sealed class PhysicsLensPanelController : MonoBehaviour
 
     private static string FormatCollisionSummary(PhysicsLensCollisionEvent evt)
     {
-        var text = evt.PartnerName + " " + evt.ImpulseMagnitude.ToString("0.0") + " N·s";
+        var text = evt.PartnerName + " " + evt.ImpulseMagnitude.ToString("0.0") + " N*s";
         if (evt.Restitution > 0.05f)
             text += " e " + evt.Restitution.ToString("0.00");
         return text;

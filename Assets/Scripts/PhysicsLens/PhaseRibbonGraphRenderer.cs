@@ -29,6 +29,7 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
     private Text _zLabel;
     private Text _scaleLabel;
     private Vector2 _graphSize;
+    private float _smoothXCenter;
     private float _smoothXRange = 1f;
     private float _smoothYRange = 1f;
     private int _maxSegments;
@@ -81,6 +82,8 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
         var now = _sampleScratch[count - 1].Time;
         var history = _config != null ? _config.HistorySeconds : 7.5f;
         var oldestTime = now - history;
+        var minX = float.PositiveInfinity;
+        var maxX = float.NegativeInfinity;
         var targetX = 0.05f;
         var targetY = 0.05f;
 
@@ -92,21 +95,40 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
 
             var x = ResolveX(sample);
             var y = ResolveY(sample);
-            if (Mathf.Abs(x) > targetX)
+            if (_mode == PhysicsLensGraphMode.HingePhaseRibbon)
+            {
+                if (x < minX)
+                    minX = x;
+                if (x > maxX)
+                    maxX = x;
+            }
+            else if (Mathf.Abs(x) > targetX)
+            {
                 targetX = Mathf.Abs(x);
+            }
+
             if (Mathf.Abs(y) > targetY)
                 targetY = Mathf.Abs(y);
+        }
+
+        var targetXCenter = 0f;
+        if (_mode == PhysicsLensGraphMode.HingePhaseRibbon && minX <= maxX)
+        {
+            targetXCenter = (minX + maxX) * 0.5f;
+            targetX = Mathf.Max(targetX, (maxX - minX) * 0.5f);
         }
 
         targetX *= 1.18f;
         targetY *= 1.18f;
         var sharpness = _config != null ? _config.GraphAutoscaleSharpness : 5f;
         var blend = 1f - Mathf.Exp(-sharpness * Time.unscaledDeltaTime);
+        _smoothXCenter = Mathf.Lerp(_smoothXCenter, targetXCenter, blend);
         _smoothXRange = Mathf.Lerp(_smoothXRange, targetX, blend);
         _smoothYRange = Mathf.Lerp(_smoothYRange, targetY, blend);
         _smoothXRange = Mathf.Max(0.01f, _smoothXRange);
         _smoothYRange = Mathf.Max(0.01f, _smoothYRange);
 
+        RefreshAxes();
         BuildRibbon(count, oldestTime, history);
         BuildLimitPlanes(constraint);
         UpdateHead(_sampleScratch[count - 1], oldestTime, history);
@@ -301,7 +323,7 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
         var halfWidth = _graphSize.x * 0.5f - PlotHorizontalInset;
         var halfHeight = _graphSize.y * 0.5f - PlotVerticalInset;
         var depth = _config != null ? _config.PhaseDepth : 72f;
-        var x = Mathf.Clamp(angle / Mathf.Max(0.001f, _smoothXRange), -1f, 1f) * halfWidth;
+        var x = Mathf.Clamp((angle - _smoothXCenter) / Mathf.Max(0.001f, _smoothXRange), -1f, 1f) * halfWidth;
         var zOld = depth * 0.5f;
         var zNow = -depth * 0.5f;
         var v = quadIndex * 4;
@@ -334,7 +356,7 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
         var halfWidth = _graphSize.x * 0.5f - PlotHorizontalInset;
         var halfHeight = _graphSize.y * 0.5f - PlotVerticalInset;
         var depth = _config != null ? _config.PhaseDepth : 72f;
-        var x = Mathf.Clamp(ResolveX(sample) / Mathf.Max(0.001f, _smoothXRange), -1f, 1f) * halfWidth;
+        var x = Mathf.Clamp((ResolveX(sample) - _smoothXCenter) / Mathf.Max(0.001f, _smoothXRange), -1f, 1f) * halfWidth;
         var y = Mathf.Clamp(ResolveY(sample) / Mathf.Max(0.001f, _smoothYRange), -1f, 1f) * halfHeight;
         var t = Mathf.Clamp01((sample.Time - oldestTime) / Mathf.Max(0.001f, history));
         var z = Mathf.Lerp(depth * 0.5f, -depth * 0.5f, t);
@@ -381,11 +403,12 @@ public sealed class PhaseRibbonGraphRenderer : MonoBehaviour
         var halfWidth = _graphSize.x * 0.5f - PlotHorizontalInset;
         var halfHeight = _graphSize.y * 0.5f - PlotVerticalInset;
         var depth = _config != null ? _config.PhaseDepth : 72f;
+        var zeroX = Mathf.Clamp(-_smoothXCenter / Mathf.Max(0.001f, _smoothXRange), -1f, 1f) * halfWidth;
         var index = 0;
 
         AddLineRect(_axisVertices, _axisColors, index++, new Vector3(-halfWidth, 0f, 0f), new Vector3(halfWidth, 0f, 0f), 1.5f, accent);
-        AddLineRect(_axisVertices, _axisColors, index++, new Vector3(0f, -halfHeight, 0f), new Vector3(0f, halfHeight, 0f), 1.5f, accent);
-        AddLineRect(_axisVertices, _axisColors, index++, new Vector3(0f, 0f, depth * 0.5f), new Vector3(0f, 0f, -depth * 0.5f), 1.5f, accent);
+        AddLineRect(_axisVertices, _axisColors, index++, new Vector3(zeroX, -halfHeight, 0f), new Vector3(zeroX, halfHeight, 0f), 1.5f, accent);
+        AddLineRect(_axisVertices, _axisColors, index++, new Vector3(zeroX, 0f, depth * 0.5f), new Vector3(zeroX, 0f, -depth * 0.5f), 1.5f, accent);
 
         for (var i = 0; i < 4; i++)
         {

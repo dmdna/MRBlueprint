@@ -7,9 +7,13 @@ public sealed class ConstraintTelemetryResolver
     private SpringJoint _springJoint;
     private HingeJoint _hingeJoint;
     private SandboxDrawingPhysicsRuntime _runtimeSpring;
+    private SandboxDrawingPhysicsRuntime _runtimeHinge;
     private PhysicsDrawingSelectable _hingeDrawing;
     private Vector3 _drawingHingeAxis = Vector3.up;
     private Vector3 _drawingReferenceVector = Vector3.forward;
+    private float _hingeUnwrappedAngle;
+    private float _hingePreviousRawAngle;
+    private bool _hasHingeAngle;
     private float _nextRescanTime;
     private int _connectedConstraintCount;
 
@@ -20,9 +24,11 @@ public sealed class ConstraintTelemetryResolver
         _springJoint = null;
         _hingeJoint = null;
         _runtimeSpring = null;
+        _runtimeHinge = null;
         _hingeDrawing = null;
         _drawingHingeAxis = Vector3.up;
         _drawingReferenceVector = Vector3.forward;
+        ResetHingeAngleTracking();
         _nextRescanTime = 0f;
         _connectedConstraintCount = 0;
     }
@@ -44,6 +50,8 @@ public sealed class ConstraintTelemetryResolver
             hasSpring = TryBuildRuntimeSpringSummary(_runtimeSpring, out spring);
         var hasHinge = TryBuildHingeSummary(_hingeJoint, out var hinge);
         if (!hasHinge)
+            hasHinge = TryBuildRuntimeHingeSummary(_runtimeHinge, out hinge);
+        if (!hasHinge)
             hasHinge = TryBuildDrawingHingeSummary(out hinge);
 
         var summary = PhysicsLensConstraintSummary.None;
@@ -64,13 +72,18 @@ public sealed class ConstraintTelemetryResolver
 
     private void RefreshCandidates()
     {
+        var previousRuntimeHinge = _runtimeHinge;
         var previousDrawing = _hingeDrawing;
         var previousAxis = _drawingHingeAxis;
         var previousReference = _drawingReferenceVector;
+        var previousUnwrappedAngle = _hingeUnwrappedAngle;
+        var previousRawAngle = _hingePreviousRawAngle;
+        var previousHasAngle = _hasHingeAngle;
 
         _springJoint = null;
         _hingeJoint = null;
         _runtimeSpring = null;
+        _runtimeHinge = null;
         _hingeDrawing = null;
         _connectedConstraintCount = 0;
 
@@ -111,11 +124,33 @@ public sealed class ConstraintTelemetryResolver
         for (var i = 0; i < runtimes.Length; i++)
         {
             var runtime = runtimes[i];
-            if (runtime == null
-                || !runtime.TryGetPhysicsLensSpringTelemetry(
+            if (runtime == null)
+                continue;
+
+            if (runtime.TryGetPhysicsLensSpringTelemetry(
                     _target,
                     out _,
                     out _,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out _))
+            {
+                _connectedConstraintCount++;
+                var runtimeSpringLoad = EstimateRuntimeSpringLoadForRanking(runtime);
+                if (_runtimeSpring == null || runtimeSpringLoad > bestSpringLoad)
+                {
+                    _runtimeSpring = runtime;
+                    bestSpringLoad = runtimeSpringLoad;
+                }
+
+                continue;
+            }
+
+            if (!runtime.TryGetPhysicsLensHingeTelemetry(
+                    _target,
                     out _,
                     out _,
                     out _,
@@ -127,14 +162,15 @@ public sealed class ConstraintTelemetryResolver
             }
 
             _connectedConstraintCount++;
-            var load = EstimateRuntimeSpringLoadForRanking(runtime);
-            if (_runtimeSpring == null || load > bestSpringLoad)
+            var runtimeHingeLoad = EstimateRuntimeHingeLoadForRanking(runtime);
+            if (_runtimeHinge == null || runtimeHingeLoad > bestHingeLoad)
             {
-                _runtimeSpring = runtime;
-                bestSpringLoad = load;
+                _runtimeHinge = runtime;
+                bestHingeLoad = runtimeHingeLoad;
             }
         }
 
+        var runtimeHingeDrawing = _runtimeHinge != null ? _runtimeHinge.SourceDrawing : null;
         var drawings = Object.FindObjectsByType<PhysicsDrawingSelectable>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
         var bestDrawingLoad = 0f;
         for (var i = 0; i < drawings.Length; i++)
@@ -148,7 +184,16 @@ public sealed class ConstraintTelemetryResolver
                 continue;
             }
 
+            if (drawing == runtimeHingeDrawing)
+            {
+                _hingeDrawing = drawing;
+                continue;
+            }
+
             _connectedConstraintCount++;
+            if (_runtimeHinge != null)
+                continue;
+
             var load = Mathf.Lerp(0.05f, 1.25f, drawing.HingeTorque)
                        + _target.angularVelocity.magnitude * Mathf.Max(0.1f, _target.mass) * 0.08f;
             if (_hingeDrawing == null || load > bestDrawingLoad)
@@ -158,17 +203,20 @@ public sealed class ConstraintTelemetryResolver
             }
         }
 
-        if (_hingeDrawing == null)
+        if (_runtimeHinge == null && _hingeDrawing == null)
             return;
 
-        if (_hingeDrawing == previousDrawing)
+        if (_runtimeHinge == previousRuntimeHinge && _hingeDrawing == previousDrawing)
         {
             _drawingHingeAxis = previousAxis.sqrMagnitude > 0.0001f ? previousAxis.normalized : Vector3.up;
             _drawingReferenceVector = previousReference.sqrMagnitude > 0.0001f ? previousReference.normalized : Vector3.forward;
+            _hingeUnwrappedAngle = previousUnwrappedAngle;
+            _hingePreviousRawAngle = previousRawAngle;
+            _hasHingeAngle = previousHasAngle;
             return;
         }
 
-        ConfigureDrawingHingeFrame(_hingeDrawing);
+        ConfigureDrawingHingeFrame(_runtimeHinge, _hingeDrawing);
     }
 
     private bool IsJointLinkedToTarget(Joint joint)
@@ -348,6 +396,69 @@ public sealed class ConstraintTelemetryResolver
         return true;
     }
 
+    private bool TryBuildRuntimeHingeSummary(
+        SandboxDrawingPhysicsRuntime runtime,
+        out PhysicsLensConstraintSummary summary)
+    {
+        summary = default;
+        if (runtime == null
+            || _target == null
+            || !runtime.TryGetPhysicsLensHingeTelemetry(
+                _target,
+                out var pivot,
+                out var bodyPoint,
+                out var restLength,
+                out var stiffness,
+                out var damper,
+                out var displayName))
+        {
+            return false;
+        }
+
+        var axis = _drawingHingeAxis.sqrMagnitude > 0.0001f ? _drawingHingeAxis.normalized : Vector3.up;
+        if (!TryResolveHingeRadial(pivot, bodyPoint, axis, out var radial, out var radialDirection, out var radius))
+            return false;
+
+        var rawAngle = Vector3.SignedAngle(_drawingReferenceVector, radialDirection, axis);
+        var angle = ResolveContinuousHingeAngle(rawAngle);
+        var signedAngularVelocity = ResolveOrbitalAngularVelocity(_target, bodyPoint, axis, radialDirection, radius);
+        var pointVelocity = _target.GetPointVelocity(bodyPoint);
+        var radialDirection3D = radial.sqrMagnitude > 0.0001f ? radial.normalized : radialDirection;
+        var outwardSpeed = Mathf.Max(0f, Vector3.Dot(pointVelocity, radialDirection3D));
+        restLength = Mathf.Max(0.001f, restLength);
+        var currentLength = Mathf.Max(radius, Vector3.Distance(pivot, bodyPoint));
+        var extension = Mathf.Max(0f, currentLength - restLength);
+        var load = Mathf.Max(0f, stiffness * extension + damper * outwardSpeed);
+        var torque = load * Mathf.Max(0.02f, radius);
+        var authoredTorque = ResolveAuthoredHingeTorque(runtime.SourceDrawing);
+        if (torque <= 0.001f)
+            torque = authoredTorque * (0.25f + Mathf.Abs(signedAngularVelocity) * 0.02f);
+
+        summary = new PhysicsLensConstraintSummary
+        {
+            Kind = PhysicsLensConstraintKind.Hinge,
+            IsValid = true,
+            DisplayName = string.IsNullOrEmpty(displayName) ? "Hinge" : displayName,
+            WorldAnchorA = pivot,
+            WorldAnchorB = pivot + radialDirection * Mathf.Max(0.08f, radius),
+            AxisWorld = axis,
+            RestLength = restLength,
+            CurrentLength = currentLength,
+            Extension = extension,
+            RelativeSpeed = outwardSpeed,
+            SignedLoad = load,
+            HingeAngle = angle,
+            SignedAngularVelocityDeg = signedAngularVelocity,
+            TorqueMagnitude = Mathf.Max(torque, authoredTorque * 0.25f),
+            LoadMagnitude = Mathf.Max(torque, load),
+            HasHingeLimits = false,
+            DistanceToLimit = float.PositiveInfinity,
+            NormalizedLimitProximity = 0f,
+            BreakRatio = -1f
+        };
+        return true;
+    }
+
     private bool TryBuildDrawingHingeSummary(out PhysicsLensConstraintSummary summary)
     {
         summary = default;
@@ -358,15 +469,15 @@ public sealed class ConstraintTelemetryResolver
             return false;
 
         var axis = _drawingHingeAxis.sqrMagnitude > 0.0001f ? _drawingHingeAxis.normalized : Vector3.up;
-        var currentReference = Vector3.ProjectOnPlane(_target.transform.forward, axis);
-        if (currentReference.sqrMagnitude <= 0.0001f)
-            currentReference = Vector3.ProjectOnPlane(_target.transform.up, axis);
-        if (currentReference.sqrMagnitude <= 0.0001f)
-            currentReference = _drawingReferenceVector;
-        currentReference.Normalize();
+        if (!_hingeDrawing.TryGetHingeAttachment(out _, out var pivot, out var bodyPoint, out _)
+            || !TryResolveHingeRadial(pivot, bodyPoint, axis, out _, out var radialDirection, out var radius))
+        {
+            return false;
+        }
 
-        var angle = Vector3.SignedAngle(_drawingReferenceVector, currentReference, axis);
-        var angularVelocity = Vector3.Dot(_target.angularVelocity, axis) * Mathf.Rad2Deg;
+        var rawAngle = Vector3.SignedAngle(_drawingReferenceVector, radialDirection, axis);
+        var angle = ResolveContinuousHingeAngle(rawAngle);
+        var angularVelocity = ResolveOrbitalAngularVelocity(_target, bodyPoint, axis, radialDirection, radius);
         var authoredTorque = SandboxStrokePlaceablePhysicsApplier.ResolveHingeTorqueEstimate(_hingeDrawing.HingeTorque);
         var torque = authoredTorque * (0.25f + Mathf.Abs(angularVelocity) * 0.02f);
 
@@ -375,6 +486,8 @@ public sealed class ConstraintTelemetryResolver
             Kind = PhysicsLensConstraintKind.Hinge,
             IsValid = true,
             DisplayName = _hingeDrawing.DisplayName,
+            WorldAnchorA = pivot,
+            WorldAnchorB = pivot + radialDirection * Mathf.Max(0.08f, radius),
             AxisWorld = axis,
             HingeAngle = angle,
             SignedAngularVelocityDeg = angularVelocity,
@@ -388,13 +501,57 @@ public sealed class ConstraintTelemetryResolver
         return true;
     }
 
-    private void ConfigureDrawingHingeFrame(PhysicsDrawingSelectable drawing)
+    private void ConfigureDrawingHingeFrame(SandboxDrawingPhysicsRuntime runtime, PhysicsDrawingSelectable drawing)
     {
         _drawingHingeAxis = Vector3.up;
         _drawingReferenceVector = Vector3.forward;
+        ResetHingeAngleTracking();
 
-        if (drawing == null || _target == null)
+        if (_target == null)
             return;
+
+        if (drawing != null && TryResolveDrawingHingeAxis(drawing, out var drawingAxis))
+            _drawingHingeAxis = drawingAxis;
+
+        if (runtime != null
+            && runtime.TryGetPhysicsLensHingeTelemetry(
+                _target,
+                out var runtimePivot,
+                out var runtimeBodyPoint,
+                out _,
+                out _,
+                out _,
+                out _)
+            && TryResolveHingeRadial(runtimePivot, runtimeBodyPoint, _drawingHingeAxis, out _, out var runtimeReference, out _))
+        {
+            _drawingReferenceVector = runtimeReference;
+            return;
+        }
+
+        if (drawing != null
+            && drawing.TryGetHingeAttachment(out _, out var pivot, out var bodyPoint, out _)
+            && TryResolveHingeRadial(pivot, bodyPoint, _drawingHingeAxis, out _, out var drawingReference, out _))
+        {
+            _drawingReferenceVector = drawingReference;
+            return;
+        }
+
+        var reference = Vector3.ProjectOnPlane(_target.transform.forward, _drawingHingeAxis);
+        if (reference.sqrMagnitude <= 0.0001f)
+            reference = Vector3.ProjectOnPlane(_target.transform.up, _drawingHingeAxis);
+        if (reference.sqrMagnitude <= 0.0001f)
+            reference = Vector3.Cross(_drawingHingeAxis, Vector3.up);
+        if (reference.sqrMagnitude <= 0.0001f)
+            reference = Vector3.right;
+
+        _drawingReferenceVector = reference.normalized;
+    }
+
+    private static bool TryResolveDrawingHingeAxis(PhysicsDrawingSelectable drawing, out Vector3 axis)
+    {
+        axis = Vector3.up;
+        if (drawing == null)
+            return false;
 
         var positions = drawing.GetWorldLinePositions();
         if (positions != null && positions.Length >= 3)
@@ -414,18 +571,92 @@ public sealed class ConstraintTelemetryResolver
             }
 
             if (normal.sqrMagnitude > 0.0001f)
-                _drawingHingeAxis = normal.normalized;
+            {
+                axis = normal.normalized;
+                return true;
+            }
         }
 
-        var reference = Vector3.ProjectOnPlane(_target.transform.forward, _drawingHingeAxis);
-        if (reference.sqrMagnitude <= 0.0001f)
-            reference = Vector3.ProjectOnPlane(_target.transform.up, _drawingHingeAxis);
-        if (reference.sqrMagnitude <= 0.0001f)
-            reference = Vector3.Cross(_drawingHingeAxis, Vector3.up);
-        if (reference.sqrMagnitude <= 0.0001f)
-            reference = Vector3.right;
+        return false;
+    }
 
-        _drawingReferenceVector = reference.normalized;
+    private static bool TryResolveHingeRadial(
+        Vector3 pivot,
+        Vector3 bodyPoint,
+        Vector3 axis,
+        out Vector3 radial,
+        out Vector3 radialDirection,
+        out float radius)
+    {
+        radial = bodyPoint - pivot;
+        radialDirection = Vector3.ProjectOnPlane(radial, axis);
+        radius = radialDirection.magnitude;
+        if (radius <= 0.0001f)
+        {
+            radialDirection = Vector3.Cross(axis, Vector3.up);
+            radius = radialDirection.magnitude;
+        }
+
+        if (radius <= 0.0001f)
+        {
+            radialDirection = Vector3.Cross(axis, Vector3.right);
+            radius = radialDirection.magnitude;
+        }
+
+        if (radius <= 0.0001f)
+            return false;
+
+        radialDirection /= radius;
+        return true;
+    }
+
+    private float ResolveContinuousHingeAngle(float rawAngle)
+    {
+        if (!_hasHingeAngle)
+        {
+            _hingeUnwrappedAngle = rawAngle;
+            _hingePreviousRawAngle = rawAngle;
+            _hasHingeAngle = true;
+            return rawAngle;
+        }
+
+        _hingeUnwrappedAngle += Mathf.DeltaAngle(_hingePreviousRawAngle, rawAngle);
+        _hingePreviousRawAngle = rawAngle;
+        return _hingeUnwrappedAngle;
+    }
+
+    private void ResetHingeAngleTracking()
+    {
+        _hingeUnwrappedAngle = 0f;
+        _hingePreviousRawAngle = 0f;
+        _hasHingeAngle = false;
+    }
+
+    private static float ResolveOrbitalAngularVelocity(
+        Rigidbody body,
+        Vector3 bodyPoint,
+        Vector3 axis,
+        Vector3 radialDirection,
+        float radius)
+    {
+        if (body == null)
+            return 0f;
+
+        if (radius > 0.001f && radialDirection.sqrMagnitude > 0.0001f)
+        {
+            var tangent = Vector3.Cross(axis.normalized, radialDirection.normalized);
+            if (tangent.sqrMagnitude > 0.0001f)
+                return Vector3.Dot(body.GetPointVelocity(bodyPoint), tangent.normalized) / radius * Mathf.Rad2Deg;
+        }
+
+        return Vector3.Dot(body.angularVelocity, axis.normalized) * Mathf.Rad2Deg;
+    }
+
+    private static float ResolveAuthoredHingeTorque(PhysicsDrawingSelectable drawing)
+    {
+        return drawing != null
+            ? SandboxStrokePlaceablePhysicsApplier.ResolveHingeTorqueEstimate(drawing.HingeTorque)
+            : 0.15f;
     }
 
     private float EstimateSpringLoadForRanking(SpringJoint joint)
@@ -447,6 +678,32 @@ public sealed class ConstraintTelemetryResolver
         if (!TryBuildRuntimeSpringSummary(runtime, out var summary))
             return 0f;
         return summary.LoadMagnitude;
+    }
+
+    private float EstimateRuntimeHingeLoadForRanking(SandboxDrawingPhysicsRuntime runtime)
+    {
+        if (runtime == null
+            || _target == null
+            || !runtime.TryGetPhysicsLensHingeTelemetry(
+                _target,
+                out var pivot,
+                out var bodyPoint,
+                out var restLength,
+                out var stiffness,
+                out var damper,
+                out _))
+        {
+            return 0f;
+        }
+
+        var distance = Vector3.Distance(pivot, bodyPoint);
+        var radial = distance > 0.0001f ? (bodyPoint - pivot) / distance : Vector3.up;
+        var pointVelocity = _target.GetPointVelocity(bodyPoint);
+        var outwardSpeed = Mathf.Max(0f, Vector3.Dot(pointVelocity, radial));
+        var extension = Mathf.Max(0f, distance - Mathf.Max(0.001f, restLength));
+        var load = Mathf.Max(0f, stiffness * extension + damper * outwardSpeed);
+        var authored = ResolveAuthoredHingeTorque(runtime.SourceDrawing);
+        return Mathf.Max(load * Mathf.Max(0.02f, distance), authored, stiffness * 0.002f);
     }
 
     private float ResolveSpringRestLength(SpringJoint joint, float currentLength)

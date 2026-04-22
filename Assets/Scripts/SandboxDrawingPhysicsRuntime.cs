@@ -29,6 +29,8 @@ public sealed class SandboxDrawingPhysicsRuntime : MonoBehaviour
     private bool _instantApplied;
     private bool _directionFollowsBody;
 
+    public PhysicsDrawingSelectable SourceDrawing => _drawing;
+
     public bool TryGetPhysicsLensSpringTelemetry(
         Rigidbody target,
         out Rigidbody bodyA,

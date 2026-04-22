@@ -88,11 +88,11 @@ public static class PhysicsInsightGenerator
             {
                 return "Bounce: e " + latestImpact.Restitution.ToString("0.00")
                        + ", " + latestImpact.ImpulseMagnitude.ToString("0.0")
-                       + " N·s, " + age.ToString("0.0") + "s ago";
+                       + " N*s, " + age.ToString("0.0") + "s ago";
             }
 
             if (age <= config.RecentImpactSeconds)
-                return "Impact: " + latestImpact.ImpulseMagnitude.ToString("0.0") + " N·s, " + age.ToString("0.0") + "s ago";
+                return "Impact: " + latestImpact.ImpulseMagnitude.ToString("0.0") + " N*s, " + age.ToString("0.0") + "s ago";
         }
 
         if (ledger != null && ledger.UserForce > 0.01f)
