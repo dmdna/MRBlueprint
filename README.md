@@ -7,14 +7,17 @@ REPLACE: make + add gifs
   <tr>
     <td width="33.33%" align="center">
       <img src="Recordings/controller_detection.gif" alt="gif 1" width="100%">
+      <img width="300" height="200" alt="gif hand" src="https://github.com/user-attachments/assets/820b8cc7-19c9-417e-b5a7-f26c1d49caee" />
       <sub><b>Hand + Controller + Stylus Detection</b></sub>
     </td>
     <td width="33.33%" align="center">
       <img src="Recordings/space_drawing.gif" alt="gif 2" width="100%">
+      <img width="300" height="200" alt="gif draw (1)" src="https://github.com/user-attachments/assets/bbfab1bf-7b8d-45a0-b1de-d105592f4ce8" />
       <sub><b>Trigger Pressure Sensitive Spatial Drawing</b></sub>
     </td>
     <td width="33.33%" align="center">
       <img src="Recordings/surface_drawing.gif" alt="gif 3" width="100%">
+      <img width="300" height="200" alt="gif draw 2" src="https://github.com/user-attachments/assets/ba594c3f-c586-4fd7-b618-c898144753f2" />
       <sub><b>Tip Pressure Sensitive Surface Drawing</b></sub>
     </td>
   </tr>
@@ -29,18 +32,67 @@ MR Blueprint is a mixed reality physics-authoring sandbox for Meta Quest. Users 
 
 ## Requirements
 
+### Hardware
+- Meta Quest 3 or Meta Quest 3S
+- Logitech MX Ink Stylus
+- VR-ready development PC
+- USB-C cable for headset build deployment
+
+### Software
+- Unity 2022.3 LTS or newer
+- Android Build Support for Unity
+- XR Plugin Management
+- XR Interaction Toolkit
+- Meta Quest / OpenXR setup
+- Logitech MX Ink SDK
+- Git
+
+### Recommended Setup
+- Enable Developer Mode on the Meta Quest headset
+- Allow USB debugging when prompted
+- Build target set to Android in Unity
+- Passthrough permissions enabled for mixed reality mode
+- Headset and stylus paired before launching the app
 
 
 ## Setup
 
-how to setup build
-
+1. Open project in Unity
+2. Install required XR packages
+3. Switch platform to Android
+4. Build & Run to Meta Quest
+5. Enable passthrough permissions if needed
 ---
 
 ## Control Schema
 <img width="1800" height="1200" alt="control" src="https://github.com/user-attachments/assets/b11c373a-aa79-4907-8703-59d73b048957" />
 
 KEYBINDS IN TEXT HERE (add a table), possibly add descriptions for each
+
+## Controls
+
+### Left Controller
+
+| Input | Action | Description |
+|---|---|---|
+| Joystick Up / Down | Drag | Move selected object or adjust values |
+| Joystick Click | Reset Orientation | Reset selected object's rotation |
+| Trigger | Select | Select object / interact with UI |
+| Grip | Grab | Grab and move objects |
+| X Button | Toolbar | Open / close toolbar |
+| Y Button | Simulate | Enter simulation mode |
+| Menu Button | Options | Open options menu |
+
+### Logitech MX Ink Stylus
+
+| Input | Action | Description |
+|---|---|---|
+| Tip Press | Draw | Draw on surfaces |
+| Side Button | Select | Select objects / interact in draw mode |
+| Side Button Press | Undo | Undo last stroke while in draw mode |
+| Side Button Hold | Clear | Clear all strokes while in draw mode |
+| Grip / Hold | Grab | Grab and move objects |
+| Trigger Pressure | Spatial Draw | Pressure-sensitive 3D drawing in space |
 
 ## Features
 
