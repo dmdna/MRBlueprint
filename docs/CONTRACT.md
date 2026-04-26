@@ -243,23 +243,3 @@ StrokeRecorder → fast stroke
 GestureInterpreter → GestureType.Flick
 InteractionResolver → nearest rigidbody
 PhysicsAuthoringSystem → ApplyImpulse(...)
-
----
-
-# How to use this (important)
-
-For every AI prompt:
-
-- paste **Sections 2, 3, 4, 5, 6**
-- then add your task
-
----
-
-# Why this works
-
-This document:
-- eliminates architectural drift
-- prevents duplicate systems
-- locks interfaces
-- enforces clean pipelines
-- ensures all generated code integrates correctly
