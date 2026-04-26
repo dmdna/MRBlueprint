@@ -32,7 +32,9 @@ MR Blueprint is a mixed reality physics-authoring sandbox for Meta Quest. Users 
 
 
 ## Setup
+
 how to setup build
+
 ---
 
 ## Control Schema
@@ -59,6 +61,7 @@ can draw your own assets. will be able to edit asset properties same as you can 
 
 
 ## Future Developments and Features
+(edit / reformat)
 * 3D Grid
 * Co-Op / Collaborative Mode
 * Share worlds
