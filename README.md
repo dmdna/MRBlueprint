@@ -16,12 +16,10 @@
 
 <p align="center">
   <a href="#demo-video">Demo Video</a> •
-  <a href="#features">Features</a> •
   <a href="#controls">Controls</a> •
-  <a href="#how-it-works">How It Works</a>
+  <a href="#features">Features</a> •
+  <a href="#how-it-works">Additional Links</a>
 </p>
-
-
 
 
 [Devstudio 2026 by Logitech Hackathon](https://devpost.com/software/mr-blueprint-draw-physics-into-reality-g1r50h?ref_content=my-projects-tab&ref_feature=my_projects) Semifinalist submission. 
@@ -52,7 +50,13 @@
 MR Blueprint is a mixed reality physics-authoring sandbox for Meta Quest. Users enter a world-space XR environment, spawn 3D objects, arrange them in space, adjust properties like mass, friction, restitution, scale, gravity, rotation, and color, and then run simulations to see what happens. With MX Ink, users can switch between edit and draw workflows, create custom scene elements, and interact in a way that feels natural inside the headset. The experience includes a home flow, toolbar, content drawer, inspector, transform gizmo, simulation controls, help overlay, audio feedback, MX Ink connection status indicator, and live visual analysis tools such as vectors, motion paths, and real-time graphing. Rather than just showing motion, MR Blueprint helps users understand motion.
 
 ## Demo Video
+<div align="center">
+  
 [![Demo Video](https://img.youtube.com/vi/ggg8-Duyzn4/0.jpg)](https://www.youtube.com/watch?v=ggg8-Duyzn4)
+
+</div>
+
+
 ---
 ## Requirements
 
@@ -235,12 +239,8 @@ PhysicsLens is a real-time visualization system that helps users understand phys
 * Custom graphs
 * Data tracking and export
 
-## License
-
-Add MIT license info here
 
 ## Additional Links
-
 - [DevStudio 2026 by Logitech Hackathon](https://devstudiologitech2026.devpost.com/)
 - [MR Blueprint – Original Pitch Submission](https://devpost.com/software/mr-blueprint-draw-physics-into-reality)
 - [MR Blueprint – Semifinalist Submission](https://devpost.com/software/mr-blueprint-draw-physics-into-reality-g1r50h?ref_content=my-projects-tab&ref_feature=my_projects)
