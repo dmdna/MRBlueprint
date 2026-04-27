@@ -2,7 +2,6 @@
 
 [Devstudio 2026 by Logitech Hackathon](https://devpost.com/software/mr-blueprint-draw-physics-into-reality-g1r50h?ref_content=my-projects-tab&ref_feature=my_projects) Semifinalist submission. 
 
-REPLACE: make + add gifs
 <table width="100%">
   <tr>
     <td width="33.33%" align="center">
