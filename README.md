@@ -1,7 +1,6 @@
+
 # MR Blueprint
-
-![MR Blueprint](assets/poster.jpg)
-
+<img width="1000" height="667" alt="MRblueprint Thumbnail (5)" src="https://github.com/user-attachments/assets/32f7f9b8-0354-4fdc-ad5c-2480136eb992" />
 <p align="center">
   <strong>MR Blueprint: Draw Physics into Reality</strong>
 </p>
