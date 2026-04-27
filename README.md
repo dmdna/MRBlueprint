@@ -10,8 +10,6 @@
   
 [![Stars](https://img.shields.io/github/stars/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/stargazers)
 [![Issues](https://img.shields.io/github/issues/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/issues)
-[![Forks](https://img.shields.io/github/forks/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/network/members)
-[![Last Commit](https://img.shields.io/github/last-commit/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/commits/main)
 [![License](https://img.shields.io/github/license/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/blob/main/LICENSE)
 
 </div>
