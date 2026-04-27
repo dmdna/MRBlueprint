@@ -1,5 +1,29 @@
 # MR Blueprint
 
+![MR Blueprint](assets/poster.jpg)
+
+<p align="center">
+  <strong>MR Blueprint: Draw Physics into Reality</strong>
+</p>
+
+<div align="center">
+  
+[![Stars](https://img.shields.io/github/stars/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/stargazers)
+[![Issues](https://img.shields.io/github/issues/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/issues)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/dmdna/MRBlueprint/YOUR_WORKFLOW_FILE.yml?branch=main)](https://github.com/dmdna/MRBlueprint/actions)
+
+</div>
+
+<p align="center">
+  <a href="#demo-video">Demo Video</a> •
+  <a href="#features">Features</a> •
+  <a href="#controls">Controls</a> •
+  <a href="#how-it-works">How It Works</a>
+</p>
+
+
+
+
 [Devstudio 2026 by Logitech Hackathon](https://devpost.com/software/mr-blueprint-draw-physics-into-reality-g1r50h?ref_content=my-projects-tab&ref_feature=my_projects) Semifinalist submission. 
 
 <table width="100%">
