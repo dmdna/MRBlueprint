@@ -144,7 +144,8 @@ Edit Mode allows users to place, select, move, rotate, scale, and configure obje
 - Color
 - Delete
 
-<img width="800" height="450" alt="Edit_mode" src="https://github.com/user-attachments/assets/056105b1-79e2-4b52-99cf-827560d4d731" />
+<img width="800" height="450" alt="editmode" src="https://github.com/user-attachments/assets/7b345c82-6839-4049-a9eb-be975749cfed" />
+
 
 ### Draw Mode
 Draw Mode transforms the Logitech MX Ink stylus into a physics creation tool, allowing users to build custom objects and scene elements directly inside mixed reality.
