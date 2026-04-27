@@ -47,12 +47,13 @@
 </table>
 
 
-## Demo Video
-[![Demo Video](https://img.youtube.com/vi/ggg8-Duyzn4/0.jpg)](https://www.youtube.com/watch?v=ggg8-Duyzn4)
 ---
 ## Overview
 MR Blueprint is a mixed reality physics-authoring sandbox for Meta Quest. Users enter a world-space XR environment, spawn 3D objects, arrange them in space, adjust properties like mass, friction, restitution, scale, gravity, rotation, and color, and then run simulations to see what happens. With MX Ink, users can switch between edit and draw workflows, create custom scene elements, and interact in a way that feels natural inside the headset. The experience includes a home flow, toolbar, content drawer, inspector, transform gizmo, simulation controls, help overlay, audio feedback, MX Ink connection status indicator, and live visual analysis tools such as vectors, motion paths, and real-time graphing. Rather than just showing motion, MR Blueprint helps users understand motion.
 
+## Demo Video
+[![Demo Video](https://img.youtube.com/vi/ggg8-Duyzn4/0.jpg)](https://www.youtube.com/watch?v=ggg8-Duyzn4)
+---
 ## Requirements
 
 ### Hardware
