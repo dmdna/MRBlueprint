@@ -10,7 +10,7 @@
   
 [![Stars](https://img.shields.io/github/stars/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/stargazers)
 [![Issues](https://img.shields.io/github/issues/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/issues)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/dmdna/MRBlueprint/YOUR_WORKFLOW_FILE.yml?branch=main)](https://github.com/dmdna/MRBlueprint/actions)
+[![License](https://img.shields.io/github/license/dmdna/MRBlueprint)](https://github.com/dmdna/MRBlueprint/blob/main/LICENSE)
 
 </div>
 
